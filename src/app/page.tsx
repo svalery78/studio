@@ -6,7 +6,6 @@ import { AppHeader } from '@/components/layout/header';
 import { MainContainer } from '@/components/layout/main-container';
 import { SettingsForm } from '@/components/settings-form';
 import { ChatWindow } from '@/components/chat/chat-window';
-// import { SelfieModal } from '@/components/chat/selfie-modal'; // Removed
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useToast } from '@/hooks/use-toast';
 import { startConversation } from '@/ai/flows/start-conversation';
@@ -28,7 +27,6 @@ export default function VirtualDatePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAiResponding, setIsAiResponding] = useState(false);
-  // const [showSelfieModal, setShowSelfieModal] = useState(false); // Removed
   const [isGeneratingSelfie, setIsGeneratingSelfie] = useState(false);
 
   const { toast } = useToast();
@@ -77,7 +75,7 @@ export default function VirtualDatePage() {
     };
     loadInitialSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps 
-  }, [toast]);
+  }, [toast]); // messages dependency removed to avoid re-triggering on message send
 
   const addMessage = (message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
@@ -87,12 +85,19 @@ export default function VirtualDatePage() {
     if (!appSettings) return;
 
     setIsGeneratingSelfie(true);
-    addMessage({ sender: 'user', text: "Hey, can you send me a selfie?" });
+    // No user message for selfie request is added here anymore, AI response will include text
+    // addMessage({ sender: 'user', text: "Hey, can you send me a selfie?" });
 
     try {
+      const chatHistoryForSelfie = messages
+        .slice(-5) // Take last 5 messages for context
+        .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
+        .join('\n');
+
       const result: GenerateSelfieOutput = await generateSelfie({
         personalityTraits: appSettings.personalityTraits,
         topicPreferences: appSettings.topicPreferences,
+        chatHistory: chatHistoryForSelfie,
       });
       addMessage({ sender: 'ai', text: result.sceneDescription, imageUrl: result.selfieDataUri });
     } catch (error) {
@@ -108,7 +113,10 @@ export default function VirtualDatePage() {
     if (!appSettings) return;
     addMessage({ sender: 'user', text: messageText });
 
-    if (messageText.toLowerCase().includes('selfie') || messageText.toLowerCase().includes('селфи')) {
+    // Updated keywords to be more robust for selfie requests
+    const lowerMessageText = messageText.toLowerCase();
+    const selfieKeywords = ['selfie', 'селфи', 'фото', 'photo', 'picture', 'pic'];
+    if (selfieKeywords.some(keyword => lowerMessageText.includes(keyword))) {
       await handleGenerateSelfieRequest();
       return;
     }
@@ -157,18 +165,17 @@ export default function VirtualDatePage() {
         {!appSettings ? (
           <SettingsForm onSubmit={handleSettingsSubmit} isSubmitting={isAiResponding} initialSettings={initialAppSettings} />
         ) : (
-          <div className="h-[calc(100vh-10rem)]">
+          <div className="h-[calc(100vh-10rem)]"> {/* Adjusted height */}
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={handleGenerateSelfieRequest} // Updated to new handler
+              onSelfieRequest={handleGenerateSelfieRequest}
               isSendingMessage={isAiResponding || isGeneratingSelfie}
               appSettings={appSettings}
             />
           </div>
         )}
       </MainContainer>
-      {/* SelfieModal removed */}
     </div>
   );
 }

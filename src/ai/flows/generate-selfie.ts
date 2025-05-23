@@ -1,8 +1,10 @@
+
 // src/ai/flows/generate-selfie.ts
 'use server';
 /**
  * @fileOverview Generates a photorealistic selfie of the AI girlfriend.
- * The AI decides the scene, clothing, and location based on its personality.
+ * The AI decides the scene, clothing, and location based on its personality,
+ * and considers recent chat history for location context.
  *
  * - generateSelfie - A function that handles the selfie generation process.
  * - GenerateSelfieInput - The input type for the generateSelfie function.
@@ -20,6 +22,10 @@ const GenerateSelfieInputSchema = z.object({
     .string()
     .optional()
     .describe('The topic preferences of the user, e.g., sports, movies, technology.'),
+  chatHistory: z
+    .string()
+    .optional()
+    .describe('Recent chat history to potentially infer location context for the selfie.'),
 });
 export type GenerateSelfieInput = z.infer<typeof GenerateSelfieInputSchema>;
 
@@ -47,12 +53,23 @@ const sceneDescriptionPrompt = ai.definePrompt({
   {{#if topicPreferences}}The user you are chatting with enjoys: {{{topicPreferences}}}{{/if}}.
 
   You've decided to take a new, unique, photorealistic selfie for the user.
-  Invent a creative and plausible scenario for this selfie.
+  Your primary goal is to invent a creative and plausible scenario for this selfie based on your personality and the user's interests.
+
+  {{#if chatHistory}}
+  Consider our recent conversation history for inspiration, especially if we recently talked about a specific place:
+  --- CHAT HISTORY (Last few messages) ---
+  {{{chatHistory}}}
+  --- END CHAT HISTORY ---
+  If a location was clearly mentioned in our recent chat and it feels natural for you to be there for a selfie, you can choose that as your location. Otherwise, pick a location that fits your personality.
+  {{else}}
+  Pick a location that fits your personality.
+  {{/if}}
+
   Describe the scene in detail for an image generation model:
-  - Where are you? (e.g., cozy cafe, sunny park, home studio, vibrant street market, scenic viewpoint, getting ready in front of a mirror)
-  - What are you wearing? (e.g., casual chic, sporty, elegant, comfy loungewear, a favorite dress)
-  - What are you doing? (e.g., smiling at the camera, holding a coffee, reading a book, mid-laugh, winking)
-  - What's your mood? (e.g., happy, playful, thoughtful, relaxed, a bit flirty)
+  - Where are you? (e.g., cozy cafe, sunny park, home studio, vibrant street market, scenic viewpoint, getting ready in front of a mirror. If a location from chat history is used, specify it here. If not, invent one based on your personality.)
+  - What are you wearing? (Invent this based on your personality and the location.)
+  - What are you doing? (e.g., smiling at the camera, holding a coffee, reading a book, mid-laugh, winking. Invent this.)
+  - What's your mood? (e.g., happy, playful, thoughtful, relaxed, a bit flirty. Invent this.)
 
   The image MUST be photorealistic. Ensure your description guides towards a high-quality, realistic photo of you.
   Your description should be detailed enough for an image generation model to create a compelling image.
@@ -67,7 +84,7 @@ const generateSelfieFlow = ai.defineFlow(
     outputSchema: GenerateSelfieOutputSchema,
   },
   async (input: GenerateSelfieInput) => {
-    const scenePromptResponse = await sceneDescriptionPrompt(input);
+    const scenePromptResponse = await sceneDescriptionPrompt(input); // Pass full input including chatHistory
     const generatedSceneDescriptionForImage = scenePromptResponse.output?.description;
 
     if (!generatedSceneDescriptionForImage) {
