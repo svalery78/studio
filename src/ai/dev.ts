@@ -1,1 +1,6 @@
-// Flows will be imported for their side effects in this file.
+import { config } from 'dotenv';
+config();
+
+import '@/ai/flows/generate-selfie.ts';
+import '@/ai/flows/continue-conversation.ts';
+import '@/ai/flows/start-conversation.ts';
