@@ -27,10 +27,14 @@ export function ChatMessage({ message, userName }: ChatMessageProps) {
             {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
             {message.imageUrl && (
               <div className="mt-2">
-                <p className="text-sm italic mb-1">Here's a selfie for you ({message.style || 'default'} style):</p>
+                <p className="text-sm italic mb-1">
+                  Here's a selfie for you 
+                  {message.style ? ` (${message.style} style)` : ''}
+                  {message.location ? ` from ${message.location}` : ''}:
+                </p>
                 <Image
                   src={message.imageUrl}
-                  alt="AI Selfie"
+                  alt={`AI Selfie${message.style ? ` (${message.style} style)` : ''}${message.location ? ` from ${message.location}` : ''}`}
                   width={300}
                   height={300}
                   className="rounded-lg object-cover"

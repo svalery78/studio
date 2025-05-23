@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -55,9 +56,12 @@ export default function VirtualDatePage() {
       const storedSettings = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
       if (storedSettings) {
         const parsedSettings = JSON.parse(storedSettings) as AppSettings;
-        setAppSettings(parsedSettings);
-        // If settings exist, maybe fetch initial greeting or assume chat continues
-        if (messages.length === 0 && parsedSettings) { // Only if no messages yet
+        // No need to call setAppSettings here as useLocalStorage handles initialization
+        // setAppSettings(parsedSettings); 
+        
+        // If settings exist and messages are empty, fetch initial greeting.
+        // Check messages.length within this effect to avoid stale closure.
+        if (messages.length === 0 && parsedSettings?.userName) { 
            setIsAiResponding(true);
            try {
             const { firstMessage } = await startConversation({
@@ -72,12 +76,15 @@ export default function VirtualDatePage() {
               setIsAiResponding(false);
            }
         }
+      } else {
+        // If no stored settings, appSettings from useLocalStorage will be initialValue (null)
+        // and the settings form will be shown.
       }
       setIsInitializing(false);
     };
     loadInitialSettings();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // setAppSettings is stable, messages.length is a dependency problem
+  // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, [toast]); // Removed appSettings, handleSettingsSubmit from deps, messages.length check is now inside.
 
   const addMessage = (message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
@@ -89,7 +96,7 @@ export default function VirtualDatePage() {
     setIsAiResponding(true);
 
     // Basic "selfie" command detection
-    if (messageText.toLowerCase().includes('selfie')) {
+    if (messageText.toLowerCase().includes('selfie') || messageText.toLowerCase().includes('селфи')) {
       setShowSelfieModal(true);
       setIsAiResponding(false); // AI response will be handled by modal
       return;
@@ -117,21 +124,25 @@ export default function VirtualDatePage() {
     }
   };
 
-  const handleGenerateSelfie = async (style: string) => {
+  const handleGenerateSelfie = async (style: string, location: string) => {
     setIsGeneratingSelfie(true);
-    addMessage({sender: 'user', text: `Can I get a selfie in ${style} style?`})
+    setShowSelfieModal(false); // Close modal immediately
+
+    let userMessageText = `Can I get a selfie in ${style} style?`;
+    if (location && location.trim() !== '') {
+      userMessageText = `Can I get a selfie in ${style} style at ${location.trim()}?`;
+    }
+    addMessage({sender: 'user', text: userMessageText, style, location })
 
     try {
-      const { selfieDataUri } = await generateSelfie({ style });
-      addMessage({ sender: 'ai', imageUrl: selfieDataUri, style });
-      setShowSelfieModal(false);
+      const { selfieDataUri } = await generateSelfie({ style, location });
+      addMessage({ sender: 'ai', imageUrl: selfieDataUri, style, location });
     } catch (error) {
       console.error("Error generating selfie:", error);
       toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" });
       addMessage({ sender: 'ai', text: "Oops, I couldn't take a selfie right now. Maybe the camera is shy!" });
     } finally {
       setIsGeneratingSelfie(false);
-      // setShowSelfieModal(false); // ensure modal closes even on error if not closed before.
     }
   };
   

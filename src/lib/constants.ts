@@ -26,4 +26,5 @@ export interface Message {
   imageUrl?: string; // For AI selfie, as a data URI
   timestamp: number;
   style?: string; // For selfie requests
+  location?: string; // For selfie location
 }
