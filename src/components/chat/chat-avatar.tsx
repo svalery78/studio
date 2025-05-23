@@ -13,7 +13,11 @@ export function ChatAvatar({ sender, name, imageUrl }: ChatAvatarProps) {
   return (
     <Avatar className="h-10 w-10 shadow-sm">
       {imageUrl ? (
-        <AvatarImage src={imageUrl} alt={`${name || sender} avatar`} />
+        <AvatarImage
+          src={imageUrl}
+          alt={`${name || sender} avatar`}
+          {...(sender === 'ai' && { 'data-ai-hint': 'woman face' })}
+        />
       ) : (
         <AvatarFallback className={sender === 'user' ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground'}>
           {sender === 'user' ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}

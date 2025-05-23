@@ -9,6 +9,7 @@ export interface AppSettings {
 export const DEFAULT_PERSONALITY_TRAITS = "friendly, caring, humorous, supportive, and a bit playful";
 export const DEFAULT_TOPIC_PREFERENCES = "movies, music, hobbies, daily life, dreams, and technology";
 export const DEFAULT_USERNAME = "My Love";
+export const AI_AVATAR_URL = 'https://placehold.co/100x100.png'; // Static AI avatar
 
 export const SELFIE_STYLES = [
   { value: 'realistic', label: 'Realistic' },

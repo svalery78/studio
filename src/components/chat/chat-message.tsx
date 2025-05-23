@@ -6,6 +6,7 @@ import type { Message } from "@/lib/constants";
 import { ChatAvatar } from "./chat-avatar";
 import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
+import { AI_AVATAR_URL } from '@/lib/constants'; // Import AI avatar URL
 
 interface ChatMessageProps {
   message: Message;
@@ -18,19 +19,22 @@ export function ChatMessage({ message, userName }: ChatMessageProps) {
   const bubbleColor = isUser ? "bg-accent text-accent-foreground" : "bg-primary text-primary-foreground";
   const bubbleAnimation = "animate-in fade-in zoom-in-95 duration-300";
 
+  const avatarImageUrl = isUser ? undefined : AI_AVATAR_URL;
+  const avatarName = isUser ? userName : "AI";
+
   return (
     <div className={cn("flex flex-col gap-2 py-3", alignment)}>
       <div className={cn("flex gap-3 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
-        <ChatAvatar sender={message.sender} name={isUser ? userName : "AI"} />
+        <ChatAvatar sender={message.sender} name={avatarName} imageUrl={avatarImageUrl} />
         <Card className={cn("max-w-xs md:max-w-md lg:max-w-lg rounded-xl shadow-md", bubbleColor, bubbleAnimation)}>
           <CardContent className="p-3 break-words">
             {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
             {message.imageUrl && (
               <div className="mt-2">
                 <p className="text-sm italic mb-1">
-                  Here's a selfie for you 
+                  Here's a selfie for you
                   {message.style ? ` (${message.style} style)` : ''}
-                  {message.location ? ` from ${message.location}` : ''}:
+                  {message.location ? ` at ${message.location}` : ''}:
                 </p>
                 <Image
                   src={message.imageUrl}
