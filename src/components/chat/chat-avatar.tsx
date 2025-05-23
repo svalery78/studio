@@ -1,3 +1,4 @@
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, Bot } from "lucide-react";
 
@@ -16,7 +17,7 @@ export function ChatAvatar({ sender, name, imageUrl }: ChatAvatarProps) {
         <AvatarImage
           src={imageUrl}
           alt={`${name || sender} avatar`}
-          {...(sender === 'ai' && { 'data-ai-hint': 'woman face' })}
+          {...(sender === 'ai' && { 'data-ai-hint': 'ai girlfriend avatar' })}
         />
       ) : (
         <AvatarFallback className={sender === 'user' ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground'}>
