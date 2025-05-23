@@ -6,12 +6,12 @@ import { AppHeader } from '@/components/layout/header';
 import { MainContainer } from '@/components/layout/main-container';
 import { SettingsForm } from '@/components/settings-form';
 import { ChatWindow } from '@/components/chat/chat-window';
-import { SelfieModal } from '@/components/chat/selfie-modal';
+// import { SelfieModal } from '@/components/chat/selfie-modal'; // Removed
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useToast } from '@/hooks/use-toast';
 import { startConversation } from '@/ai/flows/start-conversation';
 import { continueConversation } from '@/ai/flows/continue-conversation';
-import { generateSelfie } from '@/ai/flows/generate-selfie';
+import { generateSelfie, type GenerateSelfieOutput } from '@/ai/flows/generate-selfie';
 import type { AppSettings, Message } from '@/lib/constants';
 import { LOCAL_STORAGE_SETTINGS_KEY, DEFAULT_USERNAME, DEFAULT_PERSONALITY_TRAITS, DEFAULT_TOPIC_PREFERENCES } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,7 +28,7 @@ export default function VirtualDatePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAiResponding, setIsAiResponding] = useState(false);
-  const [showSelfieModal, setShowSelfieModal] = useState(false);
+  // const [showSelfieModal, setShowSelfieModal] = useState(false); // Removed
   const [isGeneratingSelfie, setIsGeneratingSelfie] = useState(false);
 
   const { toast } = useToast();
@@ -36,7 +36,7 @@ export default function VirtualDatePage() {
   const handleSettingsSubmit = useCallback(async (settings: AppSettings) => {
     setIsAiResponding(true);
     setAppSettings(settings);
-    setMessages([]); // Clear previous messages if any
+    setMessages([]); 
     try {
       const { firstMessage } = await startConversation({
         personalityTraits: settings.personalityTraits,
@@ -56,11 +56,7 @@ export default function VirtualDatePage() {
       const storedSettings = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
       if (storedSettings) {
         const parsedSettings = JSON.parse(storedSettings) as AppSettings;
-        // No need to call setAppSettings here as useLocalStorage handles initialization
-        // setAppSettings(parsedSettings); 
         
-        // If settings exist and messages are empty, fetch initial greeting.
-        // Check messages.length within this effect to avoid stale closure.
         if (messages.length === 0 && parsedSettings?.userName) { 
            setIsAiResponding(true);
            try {
@@ -76,35 +72,51 @@ export default function VirtualDatePage() {
               setIsAiResponding(false);
            }
         }
-      } else {
-        // If no stored settings, appSettings from useLocalStorage will be initialValue (null)
-        // and the settings form will be shown.
       }
       setIsInitializing(false);
     };
     loadInitialSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps 
-  }, [toast]); // Removed appSettings, handleSettingsSubmit from deps, messages.length check is now inside.
+  }, [toast]);
 
   const addMessage = (message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
   };
 
+  const handleGenerateSelfieRequest = async () => {
+    if (!appSettings) return;
+
+    setIsGeneratingSelfie(true);
+    addMessage({ sender: 'user', text: "Hey, can you send me a selfie?" });
+
+    try {
+      const result: GenerateSelfieOutput = await generateSelfie({
+        personalityTraits: appSettings.personalityTraits,
+        topicPreferences: appSettings.topicPreferences,
+      });
+      addMessage({ sender: 'ai', text: result.sceneDescription, imageUrl: result.selfieDataUri });
+    } catch (error) {
+      console.error("Error generating selfie:", error);
+      toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" });
+      addMessage({ sender: 'ai', text: "Oops, I couldn't take a selfie right now. Maybe the camera is shy!" });
+    } finally {
+      setIsGeneratingSelfie(false);
+    }
+  };
+
   const handleSendMessage = async (messageText: string) => {
     if (!appSettings) return;
     addMessage({ sender: 'user', text: messageText });
-    setIsAiResponding(true);
 
-    // Basic "selfie" command detection
     if (messageText.toLowerCase().includes('selfie') || messageText.toLowerCase().includes('селфи')) {
-      setShowSelfieModal(true);
-      setIsAiResponding(false); // AI response will be handled by modal
+      await handleGenerateSelfieRequest();
       return;
     }
 
+    setIsAiResponding(true);
     try {
       const chatHistory = messages
-        .slice(-5) // Take last 5 messages for history
+        .slice(-5) 
         .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
         .join('\n');
 
@@ -121,28 +133,6 @@ export default function VirtualDatePage() {
       addMessage({ sender: 'ai', text: "Sorry, I'm having a little trouble thinking right now. Let's try again in a moment." });
     } finally {
       setIsAiResponding(false);
-    }
-  };
-
-  const handleGenerateSelfie = async (style: string, location: string) => {
-    setIsGeneratingSelfie(true);
-    setShowSelfieModal(false); // Close modal immediately
-
-    let userMessageText = `Can I get a selfie in ${style} style?`;
-    if (location && location.trim() !== '') {
-      userMessageText = `Can I get a selfie in ${style} style at ${location.trim()}?`;
-    }
-    addMessage({sender: 'user', text: userMessageText, style, location })
-
-    try {
-      const { selfieDataUri } = await generateSelfie({ style, location });
-      addMessage({ sender: 'ai', imageUrl: selfieDataUri, style, location });
-    } catch (error) {
-      console.error("Error generating selfie:", error);
-      toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" });
-      addMessage({ sender: 'ai', text: "Oops, I couldn't take a selfie right now. Maybe the camera is shy!" });
-    } finally {
-      setIsGeneratingSelfie(false);
     }
   };
   
@@ -167,25 +157,18 @@ export default function VirtualDatePage() {
         {!appSettings ? (
           <SettingsForm onSubmit={handleSettingsSubmit} isSubmitting={isAiResponding} initialSettings={initialAppSettings} />
         ) : (
-          <div className="h-[calc(100vh-10rem)]"> {/* Adjust height to fill available space minus header/padding */}
+          <div className="h-[calc(100vh-10rem)]">
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={() => setShowSelfieModal(true)}
+              onSelfieRequest={handleGenerateSelfieRequest} // Updated to new handler
               isSendingMessage={isAiResponding || isGeneratingSelfie}
               appSettings={appSettings}
             />
           </div>
         )}
       </MainContainer>
-      {showSelfieModal && (
-        <SelfieModal
-          isOpen={showSelfieModal}
-          onClose={() => setShowSelfieModal(false)}
-          onGenerateSelfie={handleGenerateSelfie}
-          isGenerating={isGeneratingSelfie}
-        />
-      )}
+      {/* SelfieModal removed */}
     </div>
   );
 }

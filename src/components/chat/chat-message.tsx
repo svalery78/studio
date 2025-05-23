@@ -1,3 +1,4 @@
+
 "use client";
 
 import Image from 'next/image';
@@ -6,7 +7,7 @@ import type { Message } from "@/lib/constants";
 import { ChatAvatar } from "./chat-avatar";
 import { format } from 'date-fns';
 import { Card, CardContent } from '@/components/ui/card';
-import { AI_AVATAR_URL } from '@/lib/constants'; // Import AI avatar URL
+import { AI_AVATAR_URL } from '@/lib/constants';
 
 interface ChatMessageProps {
   message: Message;
@@ -30,19 +31,14 @@ export function ChatMessage({ message, userName }: ChatMessageProps) {
           <CardContent className="p-3 break-words">
             {message.text && <p className="whitespace-pre-wrap">{message.text}</p>}
             {message.imageUrl && (
-              <div className="mt-2">
-                <p className="text-sm italic mb-1">
-                  Here's a selfie for you
-                  {message.style ? ` (${message.style} style)` : ''}
-                  {message.location ? ` at ${message.location}` : ''}:
-                </p>
+              <div className={cn("mt-2", { 'mt-0': !message.text && message.imageUrl })}>
                 <Image
                   src={message.imageUrl}
-                  alt={`AI Selfie${message.style ? ` (${message.style} style)` : ''}${message.location ? ` from ${message.location}` : ''}`}
+                  alt={`AI Selfie`}
                   width={300}
                   height={300}
                   className="rounded-lg object-cover"
-                  data-ai-hint="portrait model"
+                  data-ai-hint="photorealistic woman"
                 />
               </div>
             )}
