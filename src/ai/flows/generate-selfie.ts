@@ -59,11 +59,11 @@ const sceneDescriptionPrompt = ai.definePrompt({
   Your primary goal is to invent a creative and plausible scenario for this selfie based on your personality and the user's interests.
 
   {{#if chatHistory}}
-  Consider our recent conversation history for inspiration, especially if we recently talked about a specific place:
+  Consider our recent conversation history for inspiration:
   --- CHAT HISTORY (Last few messages) ---
   {{{chatHistory}}}
   --- END CHAT HISTORY ---
-  If a location was clearly mentioned in our recent chat and it feels natural for you to be there for a selfie, you can choose that as your location. Otherwise, pick a location that fits your personality.
+  **Prioritize using a location that was clearly and recently mentioned in our chat history if it's suitable for a selfie.** If no specific, suitable location is found in the chat history, then pick a location that fits your personality.
   {{else}}
   Pick a location that fits your personality.
   {{/if}}
