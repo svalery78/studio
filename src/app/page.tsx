@@ -51,9 +51,10 @@ export default function VirtualDatePage() {
   
   useEffect(() => {
     const loadInitialSettings = async () => {
-      const storedSettings = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
-      if (storedSettings) {
-        const parsedSettings = JSON.parse(storedSettings) as AppSettings;
+      const storedSettingsItem = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
+      // Check if storedSettingsItem is not null and not the string "null"
+      if (storedSettingsItem && storedSettingsItem !== "null") {
+        const parsedSettings = JSON.parse(storedSettingsItem) as AppSettings;
         
         if (messages.length === 0 && parsedSettings?.userName) { 
            setIsAiResponding(true);
@@ -70,12 +71,15 @@ export default function VirtualDatePage() {
               setIsAiResponding(false);
            }
         }
+      } else if (!appSettings) { // If localStorage is empty or "null", and appSettings state is also null
+        // This ensures that if the user explicitly cleared settings (e.g. via /start),
+        // we don't try to load anything and just show the settings form.
       }
       setIsInitializing(false);
     };
     loadInitialSettings();
   // eslint-disable-next-line react-hooks/exhaustive-deps 
-  }, [toast]); // messages dependency removed to avoid re-triggering on message send
+  }, [toast, appSettings === null]); // Re-run if appSettings becomes null (e.g. after /start)
 
   const addMessage = (message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
@@ -110,10 +114,21 @@ export default function VirtualDatePage() {
   };
 
   const handleSendMessage = async (messageText: string) => {
-    if (!appSettings) return;
-    addMessage({ sender: 'user', text: messageText });
+    const trimmedMessage = messageText.trim();
 
-    const lowerMessageText = messageText.toLowerCase();
+    if (trimmedMessage.toLowerCase() === '/start') {
+      setAppSettings(null); // This will also update localStorage to "null" via the hook
+      setMessages([]);
+      setIsAiResponding(false);
+      setIsGeneratingSelfie(false);
+      toast({ title: "New Chat Started", description: "Please configure your AI companion to begin." });
+      return;
+    }
+
+    if (!appSettings) return;
+    addMessage({ sender: 'user', text: trimmedMessage });
+
+    const lowerMessageText = trimmedMessage.toLowerCase();
     const selfieKeywords = ['selfie', 'селфи', 'фото', 'photo', 'picture', 'pic'];
     if (selfieKeywords.some(keyword => lowerMessageText.includes(keyword))) {
       await handleGenerateSelfieRequest();
@@ -128,7 +143,7 @@ export default function VirtualDatePage() {
         .join('\n');
 
       const { response } = await continueConversation({
-        lastUserMessage: messageText,
+        lastUserMessage: trimmedMessage,
         chatHistory,
         personalityTraits: appSettings.personalityTraits,
         topicPreferences: appSettings.topicPreferences,
@@ -143,7 +158,7 @@ export default function VirtualDatePage() {
     }
   };
   
-  if (isInitializing) {
+  if (isInitializing && !appSettings) { // Show loader only if initializing AND no settings (true first load)
     return (
       <div className="flex flex-col min-h-screen">
         <AppHeader />
