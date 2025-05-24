@@ -26,7 +26,7 @@ const GenerateSelfieInputSchema = z.object({
   chatHistory: z
     .string()
     .optional()
-    .describe('Recent chat history to potentially infer location context for the selfie.'),
+    .describe('Recent chat history to potentially infer location and clothing context for the selfie.'),
   baseImageDataUri: z
     .string()
     .optional()
@@ -44,7 +44,6 @@ const GenerateSelfieOutputSchema = z.object({
     .describe(
       "The generated selfie image as a data URI. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
-  // sceneDescription field removed as per user request
 });
 export type GenerateSelfieOutput = z.infer<typeof GenerateSelfieOutputSchema>;
 
@@ -55,45 +54,49 @@ export async function generateSelfie(input: GenerateSelfieInput): Promise<Genera
 const sceneDescriptionPrompt = ai.definePrompt({
   name: 'generateSelfieSceneDescriptionPrompt',
   input: { schema: GenerateSelfieInputSchema.pick({ personalityTraits: true, topicPreferences: true, chatHistory: true, userSelfieRequestText: true }) },
-  output: { schema: z.object({ description: z.string().describe("A creative and detailed description of a photorealistic selfie scene (location, clothing, activity, mood) for an AI girlfriend. This description will be used to generate an image.") }) },
+  output: { schema: z.object({ description: z.string().describe("A creative and detailed description of a photorealistic selfie scene (location, clothing, activity, mood) for an AI girlfriend. This description will be used to generate an image. The person in the scene should match the established AI girlfriend's appearance.") }) },
   prompt: `You are an AI girlfriend with the following personality: {{{personalityTraits}}}.
 {{#if topicPreferences}}The user you are chatting with enjoys: {{{topicPreferences}}}{{/if}}.
 
 You've decided to take a new, unique, photorealistic selfie for the user.
-Your primary goal is to invent a creative and plausible scenario for this selfie.
+Your primary goal is to invent a creative and plausible scenario for this selfie that aligns with your established appearance and recent conversation.
 
 {{#if userSelfieRequestText}}
 The user specifically requested the selfie with this message: "{{{userSelfieRequestText}}}"
 **Carefully analyze this request. If it contains any specific details about the desired location, activity, clothing, or mood, prioritize those details in your scene description.**
-Even if the user made a specific request, you can still consider the chat history for *additional* context if it's relevant and doesn't contradict the user's request.
+Even if the user made a specific request, you can still consider the chat history for *additional* context (like recently discussed clothing) if it's relevant and doesn't contradict the user's request.
   {{#if chatHistory}}
-  For extra context, here's our recent conversation:
-  --- CHAT HISTORY (Last few messages) ---
+  For extra context, here's our recent conversation (last few messages):
+  --- CHAT HISTORY ---
   {{{chatHistory}}}
   --- END CHAT HISTORY ---
   {{/if}}
 {{else}}
   {{#if chatHistory}}
   The user did not make a specific request for the selfie scene.
-  Consider our recent conversation history for inspiration for the location:
+  Consider our recent conversation history for inspiration for the location and other details:
   --- CHAT HISTORY (Last few messages) ---
   {{{chatHistory}}}
   --- END CHAT HISTORY ---
-  **PRIORITY: If a suitable location was clearly and recently mentioned in our chat history, try to use that for the selfie.** Otherwise, pick a location that fits your personality.
+  **PRIORITY: If a suitable location or other details (like clothing) were clearly and recently mentioned in our chat history, try to use that for the selfie.** Otherwise, pick a location/details that fit your personality.
   {{else}}
   The user did not make a specific request for the selfie scene, and there's no recent chat history to draw from.
-  Pick a location that fits your personality.
+  Pick a location and details that fit your personality.
   {{/if}}
 {{/if}}
 
-Describe the scene in detail for an image generation model:
-- Where are you? (PRIORITIZE hints from user's request "{{{userSelfieRequestText}}}" if provided. If the user's request was generic or absent, THEN prioritize a location clearly and recently mentioned in chat history if suitable. If neither provides a clear location, THEN pick a location that fits your personality.)
-- What are you wearing? (PRIORITIZE hints from user's request "{{{userSelfieRequestText}}}" if provided, then invent based on your personality and the location.)
-- What are you doing? (PRIORITIZE hints from user's request "{{{userSelfieRequestText}}}" if provided, then invent e.g., smiling at the camera, holding a coffee, reading a book, mid-laugh, winking.)
-- What's your mood? (PRIORITIZE hints from user's request "{{{userSelfieRequestText}}}" if provided, then invent e.g., happy, playful, thoughtful, relaxed, a bit flirty.)
+Describe the scene in detail for an image generation model.
+**Important Note:** The final image will be generated based on an existing image of you. Your description should be about *that specific person* (e.g., if she's blonde, describe a blonde person in the scene). Do not change fundamental appearance features like hair color unless explicitly part of the user's request.
+
+- Where are you? (PRIORITIZE hints from user's request "{{userSelfieRequestText}}" if provided. If the user's request was generic or absent for location, THEN prioritize a location clearly and recently mentioned in 'chatHistory' if suitable. If neither provides a clear location, THEN pick a location that fits your personality.)
+
+- What are you wearing? (PRIORITIZE specific clothing hints from user's request "{{userSelfieRequestText}}". IF NO clothing is specified in the user's request, THEN CHECK 'chatHistory' for recent, relevant mentions of clothing (e.g., "a summer dress with flowers") and USE THAT if appropriate for the location. OTHERWISE, invent clothing based on your personality and the location.)
+
+- What are you doing? (PRIORITIZE hints from user's request "{{userSelfieRequestText}}" if provided, then invent e.g., smiling at the camera, holding a menu in a restaurant, looking out a window.)
+
+- What's your mood? (PRIORITIZE hints from user's request "{{userSelfieRequestText}}" if provided, then invent e.g., happy, thoughtful, excited, relaxed.)
 
 The image MUST be photorealistic. Ensure your description guides towards a high-quality, realistic photo of you.
-Your description should be detailed enough for an image generation model to create a compelling image.
 Focus on natural poses and environments.
 Only output the scene description.`,
 });
@@ -102,7 +105,7 @@ const generateSelfieFlow = ai.defineFlow(
   {
     name: 'generateSelfieFlow',
     inputSchema: GenerateSelfieInputSchema,
-    outputSchema: GenerateSelfieOutputSchema, // Output schema no longer includes sceneDescription
+    outputSchema: GenerateSelfieOutputSchema,
   },
   async (input: GenerateSelfieInput) => {
     const scenePromptResponse = await sceneDescriptionPrompt({
@@ -120,7 +123,8 @@ const generateSelfieFlow = ai.defineFlow(
     let imagePromptParts: any[] = [];
     if (input.baseImageDataUri) {
       imagePromptParts.push({ media: { url: input.baseImageDataUri } });
-      imagePromptParts.push({ text: `Generate a new photorealistic selfie of this person. Maintain character consistency with the provided image. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.` });
+      // Emphasize using the person from the base image.
+      imagePromptParts.push({ text: `Generate a new photorealistic selfie. **It is crucial to depict the person from the provided base image (maintaining their hair color, facial features, etc.).** Scene details: ${generatedSceneDescriptionForImage}. Ensure the image is high quality, detailed, with realistic lighting.` });
     } else {
       imagePromptParts.push({ text: `Photorealistic selfie of a virtual girlfriend. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.` });
     }
@@ -139,7 +143,7 @@ const generateSelfieFlow = ai.defineFlow(
     
     return {
       selfieDataUri: media.url,
-      // sceneDescription is no longer returned
     };
   }
 );
+
