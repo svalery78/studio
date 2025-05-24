@@ -86,22 +86,37 @@ const continueConversationFlow = ai.defineFlow(
   async input => {
     const {output} = await prompt(input);
     if (!output) {
-        // Fallback in case of unexpected LLM output
+        // Fallback in case of unexpected LLM output (e.g. model returns nothing)
+        console.warn('LLM output was undefined for continueConversationFlow. Falling back to default normal response.');
         return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
     }
 
-    // Validate output structure
-    if (!output.decision) {
-        console.warn(`AI decision missing from LLM output. Falling back to normal response for: ${output.responseText}`);
+    // Validate output structure to ensure it adheres to the schema before returning
+    if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
+        console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
         return { responseText: output.responseText || "I'm not sure what to say to that!", decision: 'NORMAL_RESPONSE' as const };
     }
 
     if ((output.decision === 'IMPLICIT_SELFIE_NOW' || output.decision === 'PROACTIVE_SELFIE_OFFER') && !output.selfieContext) {
-        console.warn(`Selfie context missing for AI decision: ${output.decision}. Falling back to normal response for: ${output.responseText}`);
-        // Return the text if available, but downgrade decision
-        return { responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", decision: 'NORMAL_RESPONSE' as const };
+        console.warn(`Selfie context missing for AI decision: ${output.decision}. Degrading to normal response for text: ${output.responseText}`);
+        // Return the text if available, but downgrade decision to avoid client-side issues
+        return { 
+            responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", 
+            decision: 'NORMAL_RESPONSE' as const 
+        };
+    }
+    
+    // Ensure responseText is always a string
+    if (typeof output.responseText !== 'string') {
+        console.warn(`AI responseText is not a string: ${output.responseText}. Falling back to default.`);
+        output.responseText = "I'm a bit tongue-tied at the moment!";
+        // If decision was reliant on a non-string responseText, it might be safer to also default decision
+        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext) {
+            output.decision = 'NORMAL_RESPONSE' as const;
+        }
     }
     
     return output;
   }
 );
+
