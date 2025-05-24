@@ -5,8 +5,6 @@ import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { AppHeader } from '@/components/layout/header';
 import { MainContainer } from '@/components/layout/main-container';
-// SettingsForm is no longer used for initial setup, but might be useful for editing later.
-// import { SettingsForm, type SettingsFormValues } from '@/components/settings-form';
 import { ChatWindow } from '@/components/chat/chat-window';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useToast } from '@/hooks/use-toast';
@@ -68,6 +66,7 @@ export default function VirtualDatePage() {
   const [settingsDraft, setSettingsDraft] = useState<Partial<SettingsFormValues>>({});
   const [appearanceOptions, setAppearanceOptions] = useState<string[]>([]);
   const [initialLanguageHint, setInitialLanguageHint] = useState<string>('Hello');
+  const [pendingProactiveSelfie, setPendingProactiveSelfie] = useState<{ context: string } | null>(null);
 
 
   const { toast } = useToast();
@@ -126,7 +125,7 @@ export default function VirtualDatePage() {
     };
     loadStateAndInitiateSetup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Removed addMessage from dependencies as it's stable via useCallback
+  }, []); 
 
   useEffect(() => {
     const runAISetupStep = async () => {
@@ -149,7 +148,7 @@ export default function VirtualDatePage() {
         runAISetupStep();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientSetupStep, isInitializing, initialLanguageHint, messages.length]); // addMessage removed, isAiResponding is managed locally in this effect.
+  }, [clientSetupStep, isInitializing, initialLanguageHint, messages.length]); 
 
   const addMessage = useCallback((message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
@@ -163,117 +162,138 @@ export default function VirtualDatePage() {
       setMessages([]);
       setSettingsDraft({});
       setAppearanceOptions([]);
+      setPendingProactiveSelfie(null);
       setClientSetupStep('AWAITING_AI_GREETING'); 
       setSetupVisualPhase('conversational_setup');
       setIsAiResponding(false); 
       setIsGeneratingSelfie(false); 
       window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY); 
       toast({ title: "New Chat Started", description: "Let's set up your AI companion!" });
-      // Trigger AI greeting again after reset, ensuring it won't conflict with initialization.
-      // We only need to run this if we are NOT initializing and messages ARE empty.
-      // This is handled by the useEffect that listens to clientSetupStep and messages.length.
       return;
     }
     
     addMessage({ sender: 'user', text: trimmedMessage });
     setIsAiResponding(true);
 
-    let nextAiFlowStep: AiSetupStep | null = null;
-    let nextClientStep: ClientSetupStep | null = null;
-    let updatedSettingsDraft = { ...settingsDraft };
-    let userLanguageProvider = trimmedMessage; 
-
     try {
-      if (clientSetupStep === 'AWAITING_USER_NAME') {
-        updatedSettingsDraft.userName = trimmedMessage || DEFAULT_USERNAME; 
-        nextAiFlowStep = AI_SETUP_STEPS.ASK_PERSONALITY;
-        nextClientStep = 'AWAITING_USER_PERSONALITY';
-      } else if (clientSetupStep === 'AWAITING_USER_PERSONALITY') {
-        updatedSettingsDraft.personalityTraits = trimmedMessage || DEFAULT_PERSONALITY_TRAITS; 
-        nextAiFlowStep = AI_SETUP_STEPS.ASK_TOPICS;
-        nextClientStep = 'AWAITING_USER_TOPICS';
-      } else if (clientSetupStep === 'AWAITING_USER_TOPICS') {
-        updatedSettingsDraft.topicPreferences = trimmedMessage || DEFAULT_TOPIC_PREFERENCES; 
-        nextAiFlowStep = AI_SETUP_STEPS.ASK_APPEARANCE;
-        nextClientStep = 'AWAITING_USER_APPEARANCE';
-      } else if (clientSetupStep === 'AWAITING_USER_APPEARANCE') {
-        updatedSettingsDraft.appearanceDescription = trimmedMessage || DEFAULT_APPEARANCE_DESCRIPTION; 
-        nextAiFlowStep = AI_SETUP_STEPS.CONFIRM_GENERATION;
-        nextClientStep = 'AWAITING_AI_CONFIRMATION'; 
-      } else if (clientSetupStep === 'CHAT_READY' && appSettings) {
-        const lowerMessageText = trimmedMessage.toLowerCase();
-        const explicitSelfieKeywords = ['selfie', 'селфи', 'фото', 'photo', 'picture', 'pic', 'пришли фото', 'скинь фотку', 'покажи себя', 'как выглядишь'];
+      // Handle response to a pending selfie offer first
+      if (pendingProactiveSelfie && appSettings) {
+        const userResponseLower = trimmedMessage.toLowerCase();
+        const affirmativeKeywords = ['yes', 'sure', 'ok', 'да', 'ага', 'конечно', 'давай', 'please', 'yep', 'ja', 'si', 'хочу', 'покажи', 'валяй', 'го'];
+        const negativeKeywords = ['no', 'not', 'don\'t', 'нет', 'не надо', 'не хочу', 'nein', 'non', 'откажусь', 'неа'];
+        
+        const isAffirmative = affirmativeKeywords.some(keyword => userResponseLower.includes(keyword) && !negativeKeywords.some(negKeyword => userResponseLower.includes(negKeyword)));
 
-        if (explicitSelfieKeywords.some(keyword => lowerMessageText.includes(keyword))) {
-            await handleGenerateSelfieRequest(trimmedMessage);
+        if (isAffirmative) {
+          addMessage({ sender: 'ai', text: "Great! One moment... ✨" });
+          await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings);
         } else {
-            const chatHistory = messages
-            .slice(-6, -1) 
-            .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
-            .join('\n');
-
-            const conversationOutput: ContinueConversationOutput = await continueConversation({
-                lastUserMessage: trimmedMessage,
-                chatHistory,
-                personalityTraits: appSettings.personalityTraits,
-                topicPreferences: appSettings.topicPreferences,
-            });
-
-            if (conversationOutput.responseText) {
-                addMessage({ sender: 'ai', text: conversationOutput.responseText });
-            }
-
-            if (conversationOutput.shouldGenerateSelfie && conversationOutput.selfieContext) {
-                const selfieRequestContext = conversationOutput.selfieContext.trim() || trimmedMessage; 
-                await handleGenerateSelfieRequest(selfieRequestContext);
-            }
+          addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
+          // The conversation will continue with the user's current message (trimmedMessage)
+          // as it falls through to the `continueConversation` call below.
         }
-        setIsAiResponding(false);
-        return;
-      } else {
-        console.warn("Message sent in unexpected setup step or state:", clientSetupStep, "appSettings:", appSettings);
-        setIsAiResponding(false);
-        return;
+        setPendingProactiveSelfie(null);
+        if (isAffirmative) {
+          setIsAiResponding(false);
+          return; // Selfie generation handled, end this turn.
+        }
+        // If not affirmative, proceed to treat trimmedMessage as a normal conversation starter.
       }
 
-      setSettingsDraft(updatedSettingsDraft);
 
-      if (nextAiFlowStep) {
-        const aiResponse = await getSetupPrompt({
-          currentStep: nextAiFlowStep,
-          userName: updatedSettingsDraft.userName,
-          userRawInput: userLanguageProvider, 
-        });
-        addMessage({ sender: 'ai', text: aiResponse.aiResponse });
+      // Setup conversation logic
+      if (clientSetupStep !== 'CHAT_READY') {
+        let nextAiFlowStep: AiSetupStep | null = null;
+        let nextClientStep: ClientSetupStep | null = null;
+        let updatedSettingsDraft = { ...settingsDraft };
+        let userLanguageProvider = trimmedMessage; 
 
-        if (nextAiFlowStep === AI_SETUP_STEPS.CONFIRM_GENERATION) {
-          setClientSetupStep('GENERATING_APPEARANCE');
-          setSetupVisualPhase('appearance_pending');
-          
-          const finalAppearanceDescription = updatedSettingsDraft.appearanceDescription || DEFAULT_APPEARANCE_DESCRIPTION;
-          if (!finalAppearanceDescription) { 
-            toast({ title: "Error", description: "Appearance description is missing.", variant: "destructive" });
-            setClientSetupStep('AWAITING_USER_APPEARANCE'); 
-            setSetupVisualPhase('conversational_setup');
-            const reAskResponse = await getSetupPrompt({ currentStep: AI_SETUP_STEPS.ASK_APPEARANCE, userName: updatedSettingsDraft.userName, userRawInput: "Please describe your appearance again."});
-            addMessage({ sender: 'ai', text: reAskResponse.aiResponse });
-            setIsAiResponding(false);
-            return; 
-          }
-
-          const { portraits } = await generateAppearanceOptions({ appearanceDescription: finalAppearanceDescription });
-          setAppearanceOptions(portraits);
-          setSetupVisualPhase('appearance_selection');
-          setClientSetupStep('SELECTING_AVATAR'); 
-        } else if (nextClientStep) {
-          setClientSetupStep(nextClientStep);
+        if (clientSetupStep === 'AWAITING_USER_NAME') {
+          updatedSettingsDraft.userName = trimmedMessage || DEFAULT_USERNAME; 
+          nextAiFlowStep = AI_SETUP_STEPS.ASK_PERSONALITY;
+          nextClientStep = 'AWAITING_USER_PERSONALITY';
+        } else if (clientSetupStep === 'AWAITING_USER_PERSONALITY') {
+          updatedSettingsDraft.personalityTraits = trimmedMessage || DEFAULT_PERSONALITY_TRAITS; 
+          nextAiFlowStep = AI_SETUP_STEPS.ASK_TOPICS;
+          nextClientStep = 'AWAITING_USER_TOPICS';
+        } else if (clientSetupStep === 'AWAITING_USER_TOPICS') {
+          updatedSettingsDraft.topicPreferences = trimmedMessage || DEFAULT_TOPIC_PREFERENCES; 
+          nextAiFlowStep = AI_SETUP_STEPS.ASK_APPEARANCE;
+          nextClientStep = 'AWAITING_USER_APPEARANCE';
+        } else if (clientSetupStep === 'AWAITING_USER_APPEARANCE') {
+          updatedSettingsDraft.appearanceDescription = trimmedMessage || DEFAULT_APPEARANCE_DESCRIPTION; 
+          nextAiFlowStep = AI_SETUP_STEPS.CONFIRM_GENERATION;
+          nextClientStep = 'AWAITING_AI_CONFIRMATION'; 
+        } else {
+          console.warn("Message sent in unexpected setup step:", clientSetupStep);
+          setIsAiResponding(false);
+          return;
         }
+
+        setSettingsDraft(updatedSettingsDraft);
+
+        if (nextAiFlowStep) {
+          const aiResponse = await getSetupPrompt({
+            currentStep: nextAiFlowStep,
+            userName: updatedSettingsDraft.userName,
+            userRawInput: userLanguageProvider, 
+          });
+          addMessage({ sender: 'ai', text: aiResponse.aiResponse });
+
+          if (nextAiFlowStep === AI_SETUP_STEPS.CONFIRM_GENERATION) {
+            setClientSetupStep('GENERATING_APPEARANCE');
+            setSetupVisualPhase('appearance_pending');
+            
+            const finalAppearanceDescription = updatedSettingsDraft.appearanceDescription || DEFAULT_APPEARANCE_DESCRIPTION;
+            if (!finalAppearanceDescription) { 
+              toast({ title: "Error", description: "Appearance description is missing.", variant: "destructive" });
+              setClientSetupStep('AWAITING_USER_APPEARANCE'); 
+              setSetupVisualPhase('conversational_setup');
+              const reAskResponse = await getSetupPrompt({ currentStep: AI_SETUP_STEPS.ASK_APPEARANCE, userName: updatedSettingsDraft.userName, userRawInput: "Please describe your appearance again."});
+              addMessage({ sender: 'ai', text: reAskResponse.aiResponse });
+              setIsAiResponding(false);
+              return; 
+            }
+
+            const { portraits } = await generateAppearanceOptions({ appearanceDescription: finalAppearanceDescription });
+            setAppearanceOptions(portraits);
+            setSetupVisualPhase('appearance_selection');
+            setClientSetupStep('SELECTING_AVATAR'); 
+          } else if (nextClientStep) {
+            setClientSetupStep(nextClientStep);
+          }
+        }
+      // Regular chat conversation logic
+      } else if (appSettings) {
+        const chatHistory = messages
+          .slice(-6, -1) // Exclude the current user's message which is `trimmedMessage`
+          .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
+          .join('\n');
+
+        const conversationOutput: ContinueConversationOutput = await continueConversation({
+            lastUserMessage: trimmedMessage,
+            chatHistory,
+            personalityTraits: appSettings.personalityTraits,
+            topicPreferences: appSettings.topicPreferences,
+        });
+
+        if (conversationOutput.responseText) {
+            addMessage({ sender: 'ai', text: conversationOutput.responseText });
+        }
+
+        if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
+            await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
+        } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
+            setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
+        }
+        // For 'NORMAL_RESPONSE', only responseText is handled above.
+      } else {
+         console.warn("Message sent but appSettings are null and not in setup.");
       }
     } catch (error) {
       console.error("Error during setup or conversation step:", error);
       toast({ title: "Error", description: "Something went wrong. Please try again or type /start.", variant: "destructive" });
       if (clientSetupStep !== 'CHAT_READY') {
-        // Reset to a known good state in setup if error occurs
         setClientSetupStep('AWAITING_AI_GREETING');
         setMessages([]); 
         setSettingsDraft({});
@@ -320,37 +340,40 @@ export default function VirtualDatePage() {
         personalityTraits: finalAppSettings.personalityTraits,
         topicPreferences: finalAppSettings.topicPreferences,
       });
-      addMessage({ sender: 'ai', text: `Great choice, ${finalAppSettings.userName}! I'm all set up. ${firstMessage}` });
+      // Clear any existing messages from setup before starting the actual chat
+      setMessages([{ sender: 'ai', text: `Great choice, ${finalAppSettings.userName}! I'm all set up. ${firstMessage}`, id: Date.now().toString(), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY');
       setSetupVisualPhase('chat_ready');
     } catch (error) {
       console.error("Error starting conversation after avatar selection:", error);
       toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
-      addMessage({ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!"});
+      setMessages([{ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!", id: Date.now().toString(), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY');
       setSetupVisualPhase('chat_ready');
     } finally {
       setIsAiResponding(false);
     }
-  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie]);
+  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, setMessages ]); // Added setMessages
   
-  const handleGenerateSelfieRequest = async (userRequestText: string) => {
-    if (!appSettings || !appSettings.selectedAvatarDataUri || clientSetupStep !== 'CHAT_READY' || isGeneratingSelfie || isAiResponding) return;
+  const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings) => {
+    // Removed appSettings from here as it will be passed in or taken from state
+    if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding) return;
 
     setIsGeneratingSelfie(true);    
-    setIsAiResponding(true); 
+    // setIsAiResponding(true); // This is usually set by the caller (handleSendMessage)
+
     try {
       const chatHistoryForSelfie = messages
         .slice(-5) 
-        .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
+        .map(msg => `${msg.sender === 'user' ? currentAppSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
         .join('\n');
 
       const selfieInput: GenerateSelfieInput = {
-        personalityTraits: appSettings.personalityTraits,
-        topicPreferences: appSettings.topicPreferences,
+        personalityTraits: currentAppSettings.personalityTraits,
+        topicPreferences: currentAppSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
-        baseImageDataUri: appSettings.selectedAvatarDataUri,
-        userSelfieRequestText: userRequestText,
+        baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
+        userSelfieRequestText: selfieContext, // Use the context passed in
       };
       
       const result: GenerateSelfieOutput = await generateSelfie(selfieInput);
@@ -358,7 +381,6 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        // Removed console.error for handled client-side flow error
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -366,7 +388,7 @@ export default function VirtualDatePage() {
       addMessage({ sender: 'ai', text: "Ой, что-то совсем пошло не так с моей камерой! Попробуем в другой раз, милый? 😥" });
     } finally {
       setIsGeneratingSelfie(false);
-      setIsAiResponding(false);
+      // setIsAiResponding(false); // This should be managed by the caller
     }
   };
   
@@ -395,16 +417,17 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={(userText) => {
-                  if (clientSetupStep === 'CHAT_READY') {
-                     handleGenerateSelfieRequest(userText || "User clicked selfie button");
+              onSelfieRequest={(userText) => { // This button might not be needed if AI handles all selfie triggers
+                  if (clientSetupStep === 'CHAT_READY' && appSettings) {
+                     // If user clicks button, treat it as a generic implicit request
+                     handleGenerateSelfieRequest(userText || "User clicked selfie button", appSettings);
                   }
                 }
               }
               isSendingMessage={isAiResponding || isGeneratingSelfie} 
               appSettings={appSettings} 
               chatInputDisabled={isAiResponding || isGeneratingSelfie || (clientSetupStep !== 'AWAITING_USER_NAME' && clientSetupStep !== 'AWAITING_USER_PERSONALITY' && clientSetupStep !== 'AWAITING_USER_TOPICS' && clientSetupStep !== 'AWAITING_USER_APPEARANCE' && clientSetupStep !== 'CHAT_READY')}
-              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || clientSetupStep !== 'CHAT_READY'}
+              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || clientSetupStep !== 'CHAT_READY' || !!pendingProactiveSelfie}
             />
           </div>
         )}
@@ -464,11 +487,15 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={(userText) => handleGenerateSelfieRequest(userText || "User clicked selfie button")}
+              onSelfieRequest={(userText) => {
+                if (appSettings && !pendingProactiveSelfie) {
+                  handleGenerateSelfieRequest(userText || "User clicked selfie button", appSettings);
+                }
+              }}
               isSendingMessage={isAiResponding || isGeneratingSelfie}
               appSettings={appSettings}
-              chatInputDisabled={isAiResponding || isGeneratingSelfie}
-              selfieButtonDisabled={isAiResponding || isGeneratingSelfie}
+              chatInputDisabled={isAiResponding || isGeneratingSelfie || !!pendingProactiveSelfie}
+              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || !!pendingProactiveSelfie}
             />
           </div>
         )}
@@ -476,6 +503,3 @@ export default function VirtualDatePage() {
     </div>
   );
 }
-    
-
-    

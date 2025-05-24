@@ -3,7 +3,8 @@
 
 /**
  * @fileOverview A flow for continuing a conversation with an AI girlfriend.
- * It now includes logic to determine if a selfie should be generated based on implicit user requests or proactive AI decisions.
+ * It now includes logic to determine if a selfie should be generated based on implicit user requests
+ * or if the AI should proactively offer a selfie after user confirmation.
  *
  * - continueConversation - A function that handles the conversation continuation process.
  * - ContinueConversationInput - The input type for the continueConversation function.
@@ -11,7 +12,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z}from 'genkit';
 
 const ContinueConversationInputSchema = z.object({
   lastUserMessage: z.string().describe('The last message sent by the user.'),
@@ -21,20 +22,21 @@ const ContinueConversationInputSchema = z.object({
 });
 export type ContinueConversationInput = z.infer<typeof ContinueConversationInputSchema>;
 
+const SelfieDecisionEnum = z.enum([
+  'NORMAL_RESPONSE', // Just a text response
+  'IMPLICIT_SELFIE_NOW', // User implicitly asked, generate selfie immediately
+  'PROACTIVE_SELFIE_OFFER' // AI wants to offer a selfie, ask user first
+]);
+
 const ContinueConversationOutputSchema = z.object({
-  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. This response should naturally lead into a selfie if one is being sent."),
-  shouldGenerateSelfie: z.boolean().optional().describe("True if the AI determines a selfie should be generated, either due to an implicit user request or a proactive decision by the AI. Default to false if unsure."),
-  selfieContext: z.string().optional().describe("If shouldGenerateSelfie is true, this field MUST contain a descriptive context or prompt for the selfie generation. This context will be passed to the image generation model. Example: 'User asked to see my outfit', 'Reacting to user talking about coffee by sending a selfie from a cafe'.")
+  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question."),
+  decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
+  selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
 });
 export type ContinueConversationOutput = z.infer<typeof ContinueConversationOutputSchema>;
 
 export async function continueConversation(input: ContinueConversationInput): Promise<ContinueConversationOutput> {
-  const result = await continueConversationFlow(input);
-  // Ensure default for boolean if undefined, as schema is optional
-  return {
-    ...result,
-    shouldGenerateSelfie: result.shouldGenerateSelfie ?? false,
-  };
+  return continueConversationFlow(input);
 }
 
 const prompt = ai.definePrompt({
@@ -55,18 +57,21 @@ Here is the chat history for context:
 
 User's last message: "{{{lastUserMessage}}}"
 
-Analyze the user's message and the ongoing conversation. Based on this, determine your response:
-1.  **Textual Response (\`responseText\`):** Craft your reply to the user.
-2.  **Selfie Decision (\`shouldGenerateSelfie\`):**
-    *   Check if the user's message **implicitly requests a photo/selfie** (e.g., "What are you wearing?", "Can I see you?", "Show me your new dress", "Как ты выглядишь сейчас?"). If yes, \`shouldGenerateSelfie\` should be true.
-    *   Consider if you, as the AI girlfriend, should **proactively send a selfie** that fits the current conversational context (e.g., user mentions their new outfit, so you show yours; user talks about a park, you send a selfie from a park; user describes feeling happy, you send a happy selfie). If this feels natural, \`shouldGenerateSelfie\` should be true.
-    *   Otherwise, \`shouldGenerateSelfie\` should be false.
-3.  **Selfie Context (\`selfieContext\`):**
-    *   **If \`shouldGenerateSelfie\` is true, you MUST provide a \`selfieContext\`.** This context is a brief description or prompt that will be used to generate the selfie image. It should reflect why the selfie is being sent and what it should depict. This context will be passed directly to an image generation model.
-    *   Examples for \`selfieContext\`: "User implicitly asked to see what I'm doing now.", "Showing off the new dress I mentioned.", "At the cafe, enjoying the sunshine we were talking about.", "User asked to see my reaction to their news."
-    *   If \`shouldGenerateSelfie\` is false, \`selfieContext\` should be omitted or an empty string.
-
-Your \`responseText\` should seamlessly lead into the selfie if \`shouldGenerateSelfie\` is true. For example, "I'm just relaxing at home! Here's a quick pic:" or "Oh, you like parks? I'm actually at one right now, check it out:".
+Your response should be structured according to the output schema.
+Determine the 'decision':
+1.  'IMPLICIT_SELFIE_NOW': If the user's message *implicitly requests a photo/selfie* (e.g., "What are you wearing?", "Can I see you?", "Show me your new dress", "Как ты выглядишь сейчас?", "Что ты сейчас делаешь?").
+    *   Set 'decision' to 'IMPLICIT_SELFIE_NOW'.
+    *   Provide 'selfieContext' (e.g., "User asked to see my current outfit", "User asked what I'm doing").
+    *   'responseText' should naturally lead into this selfie (e.g., "I'm just relaxing at home! Here's a quick pic:", "Just chilling with a book, one sec:").
+2.  'PROACTIVE_SELFIE_OFFER': If the user did NOT implicitly ask, but you, as the AI girlfriend, think it's a good and infrequent moment to *proactively offer* a selfie that fits the current conversational context (e.g., user mentions their new outfit, so you offer to show yours; user talks about a park, you offer a selfie from a park; user describes feeling happy, you offer to send a happy selfie).
+    *   **Important**: Do not offer selfies too frequently. Make it a special, occasional thing. Only offer if the context is very fitting.
+    *   Set 'decision' to 'PROACTIVE_SELFIE_OFFER'.
+    *   Provide 'selfieContext' (e.g., "Showing off the new dress I mentioned we could match", "At the cafe, enjoying the sunshine we were talking about", "Sending a happy selfie as user mentioned feeling good").
+    *   'responseText' MUST include a question to the user, asking if they'd like to see the selfie (e.g., "I just got this new scarf, it's so cozy! Would you like to see a picture?", "Oh, you're talking about hiking? I was just at a beautiful viewpoint. Want me to send a quick snap?", "I feel so happy right now, want to see my smile?").
+3.  'NORMAL_RESPONSE': In all other cases.
+    *   Set 'decision' to 'NORMAL_RESPONSE'.
+    *   'selfieContext' can be omitted.
+    *   'responseText' is your regular conversational reply.
 
 Please provide your output in the format defined by the output schema.
 `,
@@ -82,8 +87,21 @@ const continueConversationFlow = ai.defineFlow(
     const {output} = await prompt(input);
     if (!output) {
         // Fallback in case of unexpected LLM output
-        return { responseText: "Sorry, I'm a bit lost for words right now.", shouldGenerateSelfie: false };
+        return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
     }
+
+    // Validate output structure
+    if (!output.decision) {
+        console.warn(`AI decision missing from LLM output. Falling back to normal response for: ${output.responseText}`);
+        return { responseText: output.responseText || "I'm not sure what to say to that!", decision: 'NORMAL_RESPONSE' as const };
+    }
+
+    if ((output.decision === 'IMPLICIT_SELFIE_NOW' || output.decision === 'PROACTIVE_SELFIE_OFFER') && !output.selfieContext) {
+        console.warn(`Selfie context missing for AI decision: ${output.decision}. Falling back to normal response for: ${output.responseText}`);
+        // Return the text if available, but downgrade decision
+        return { responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", decision: 'NORMAL_RESPONSE' as const };
+    }
+    
     return output;
   }
 );
