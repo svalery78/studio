@@ -85,9 +85,8 @@ export default function VirtualDatePage() {
     if (!appSettings) return;
 
     setIsGeneratingSelfie(true);
-    // No user message for selfie request is added here anymore, AI response will include text
-    // addMessage({ sender: 'user', text: "Hey, can you send me a selfie?" });
-
+    // No user message for selfie request is added here
+    
     try {
       const chatHistoryForSelfie = messages
         .slice(-5) // Take last 5 messages for context
@@ -99,7 +98,8 @@ export default function VirtualDatePage() {
         topicPreferences: appSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
       });
-      addMessage({ sender: 'ai', text: result.sceneDescription, imageUrl: result.selfieDataUri });
+      // Only add the image, no accompanying text
+      addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
     } catch (error) {
       console.error("Error generating selfie:", error);
       toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" });
@@ -113,7 +113,6 @@ export default function VirtualDatePage() {
     if (!appSettings) return;
     addMessage({ sender: 'user', text: messageText });
 
-    // Updated keywords to be more robust for selfie requests
     const lowerMessageText = messageText.toLowerCase();
     const selfieKeywords = ['selfie', 'селфи', 'фото', 'photo', 'picture', 'pic'];
     if (selfieKeywords.some(keyword => lowerMessageText.includes(keyword))) {

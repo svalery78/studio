@@ -35,9 +35,7 @@ const GenerateSelfieOutputSchema = z.object({
     .describe(
       "The generated selfie image as a data URI. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
-  sceneDescription: z
-    .string()
-    .describe('A description of the selfie scene, including location, clothing, and mood, as narrated by the AI girlfriend.'),
+  // sceneDescription field is removed as per user request
 });
 export type GenerateSelfieOutput = z.infer<typeof GenerateSelfieOutputSchema>;
 
@@ -84,11 +82,11 @@ const generateSelfieFlow = ai.defineFlow(
     outputSchema: GenerateSelfieOutputSchema,
   },
   async (input: GenerateSelfieInput) => {
-    const scenePromptResponse = await sceneDescriptionPrompt(input); // Pass full input including chatHistory
+    const scenePromptResponse = await sceneDescriptionPrompt(input); 
     const generatedSceneDescriptionForImage = scenePromptResponse.output?.description;
 
     if (!generatedSceneDescriptionForImage) {
-      throw new Error('Failed to generate selfie scene description.');
+      throw new Error('Failed to generate selfie scene description for image generation.');
     }
 
     const imagePromptText = `Photorealistic selfie of a virtual girlfriend. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.`;
@@ -105,13 +103,9 @@ const generateSelfieFlow = ai.defineFlow(
       throw new Error('Image generation failed or did not return a media URL.');
     }
     
-    // Craft a more conversational description for the chat
-    const conversationalSceneDescription = `Just took this for you! 😉\nI'm ${generatedSceneDescriptionForImage.toLowerCase().startsWith('in') || generatedSceneDescriptionForImage.toLowerCase().startsWith('at') ? '' : 'currently '}${generatedSceneDescriptionForImage.charAt(0).toLowerCase() + generatedSceneDescriptionForImage.slice(1)}`;
-
-
     return {
       selfieDataUri: media.url,
-      sceneDescription: conversationalSceneDescription,
+      // No sceneDescription is returned to the user
     };
   }
 );
