@@ -12,7 +12,9 @@ interface ChatWindowProps {
   onSendMessage: (messageText: string) => void;
   onSelfieRequest: () => void;
   isSendingMessage: boolean;
-  appSettings: AppSettings | null; // appSettings will now contain selectedAvatarDataUri
+  appSettings: AppSettings | null;
+  chatInputDisabled?: boolean; // Added to disable input during setup phases
+  selfieButtonDisabled?: boolean; // Added to disable selfie button during setup
 }
 
 export function ChatWindow({
@@ -21,6 +23,8 @@ export function ChatWindow({
   onSelfieRequest,
   isSendingMessage,
   appSettings,
+  chatInputDisabled = false, // Default to false (enabled)
+  selfieButtonDisabled = false, // Default to false (enabled)
 }: ChatWindowProps) {
   const scrollRef = useChatScroll(messages);
 
@@ -48,8 +52,9 @@ export function ChatWindow({
         onSendMessage={onSendMessage}
         onSelfieRequest={onSelfieRequest}
         isSending={isSendingMessage}
+        inputDisabled={chatInputDisabled || isSendingMessage} // Combine general sending state with specific disable prop
+        selfieDisabled={selfieButtonDisabled || isSendingMessage} // Combine general sending state with specific disable prop
       />
     </div>
   );
 }
-
