@@ -5,6 +5,7 @@
  * @fileOverview Generates a photorealistic selfie of the AI girlfriend.
  * The AI decides the scene, clothing, and location based on its personality,
  * and considers recent chat history for location context.
+ * It also uses a base image of the AI girlfriend to maintain appearance consistency.
  *
  * - generateSelfie - A function that handles the selfie generation process.
  * - GenerateSelfieInput - The input type for the generateSelfie function.
@@ -26,6 +27,10 @@ const GenerateSelfieInputSchema = z.object({
     .string()
     .optional()
     .describe('Recent chat history to potentially infer location context for the selfie.'),
+  baseImageDataUri: z
+    .string()
+    .optional()
+    .describe("A base image data URI of the AI girlfriend to ensure appearance consistency. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
 });
 export type GenerateSelfieInput = z.infer<typeof GenerateSelfieInputSchema>;
 
@@ -35,7 +40,6 @@ const GenerateSelfieOutputSchema = z.object({
     .describe(
       "The generated selfie image as a data URI. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
-  // sceneDescription field is removed as per user request
 });
 export type GenerateSelfieOutput = z.infer<typeof GenerateSelfieOutputSchema>;
 
@@ -45,7 +49,8 @@ export async function generateSelfie(input: GenerateSelfieInput): Promise<Genera
 
 const sceneDescriptionPrompt = ai.definePrompt({
   name: 'generateSelfieSceneDescriptionPrompt',
-  input: { schema: GenerateSelfieInputSchema },
+  // Input schema now only needs personality and chat history for scene description
+  input: { schema: GenerateSelfieInputSchema.pick({ personalityTraits: true, topicPreferences: true, chatHistory: true }) },
   output: { schema: z.object({ description: z.string().describe("A creative and detailed description of a photorealistic selfie scene (location, clothing, activity, mood) for an AI girlfriend. This description will be used to generate an image.") }) },
   prompt: `You are an AI girlfriend with the following personality: {{{personalityTraits}}}.
   {{#if topicPreferences}}The user you are chatting with enjoys: {{{topicPreferences}}}{{/if}}.
@@ -82,18 +87,30 @@ const generateSelfieFlow = ai.defineFlow(
     outputSchema: GenerateSelfieOutputSchema,
   },
   async (input: GenerateSelfieInput) => {
-    const scenePromptResponse = await sceneDescriptionPrompt(input); 
+    // Generate scene description based on personality, preferences, and chat history
+    const scenePromptResponse = await sceneDescriptionPrompt({
+      personalityTraits: input.personalityTraits,
+      topicPreferences: input.topicPreferences,
+      chatHistory: input.chatHistory,
+    }); 
     const generatedSceneDescriptionForImage = scenePromptResponse.output?.description;
 
     if (!generatedSceneDescriptionForImage) {
       throw new Error('Failed to generate selfie scene description for image generation.');
     }
 
-    const imagePromptText = `Photorealistic selfie of a virtual girlfriend. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.`;
-
+    let imagePromptParts: any[] = [];
+    if (input.baseImageDataUri) {
+      imagePromptParts.push({ media: { url: input.baseImageDataUri } });
+      imagePromptParts.push({ text: `Generate a new photorealistic selfie of this person. Maintain character consistency with the provided image. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.` });
+    } else {
+      // Fallback if no base image is provided (should not happen in normal flow after setup)
+      imagePromptParts.push({ text: `Photorealistic selfie of a virtual girlfriend. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.` });
+    }
+    
     const {media} = await ai.generate({
       model: 'googleai/gemini-2.0-flash-exp',
-      prompt: imagePromptText,
+      prompt: imagePromptParts,
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
       },
@@ -105,7 +122,7 @@ const generateSelfieFlow = ai.defineFlow(
     
     return {
       selfieDataUri: media.url,
-      // No sceneDescription is returned to the user
     };
   }
 );
+

@@ -1,3 +1,4 @@
+
 "use client";
 
 import type { Message, AppSettings } from "@/lib/constants";
@@ -11,7 +12,7 @@ interface ChatWindowProps {
   onSendMessage: (messageText: string) => void;
   onSelfieRequest: () => void;
   isSendingMessage: boolean;
-  appSettings: AppSettings | null;
+  appSettings: AppSettings | null; // appSettings will now contain selectedAvatarDataUri
 }
 
 export function ChatWindow({
@@ -28,7 +29,7 @@ export function ChatWindow({
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} userName={appSettings?.userName} />
+            <ChatMessage key={msg.id} message={msg} appSettings={appSettings} />
           ))}
           {isSendingMessage && messages[messages.length-1]?.sender === 'user' && (
              <ChatMessage 
@@ -37,7 +38,8 @@ export function ChatWindow({
                 sender: 'ai', 
                 text: 'Typing...', 
                 timestamp: Date.now() 
-              }} 
+              }}
+              appSettings={appSettings} 
             />
           )}
         </div>
@@ -50,3 +52,4 @@ export function ChatWindow({
     </div>
   );
 }
+

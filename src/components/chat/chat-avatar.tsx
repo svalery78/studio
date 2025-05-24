@@ -1,23 +1,25 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { User, Bot } from "lucide-react";
+import type { AppSettings } from "@/lib/constants"; // Import AppSettings
 
 interface ChatAvatarProps {
   sender: 'user' | 'ai';
   name?: string;
-  imageUrl?: string;
+  appSettings?: AppSettings | null; // Pass full appSettings or just selectedAvatarDataUri
 }
 
-export function ChatAvatar({ sender, name, imageUrl }: ChatAvatarProps) {
+export function ChatAvatar({ sender, name, appSettings }: ChatAvatarProps) {
   const fallbackName = name ? name.substring(0, 1).toUpperCase() : (sender === 'user' ? 'U' : 'AI');
+  const aiAvatarUrl = appSettings?.selectedAvatarDataUri;
 
   return (
     <Avatar className="h-10 w-10 shadow-sm">
-      {imageUrl ? (
+      {(sender === 'ai' && aiAvatarUrl) ? (
         <AvatarImage
-          src={imageUrl}
-          alt={`${name || sender} avatar`}
-          {...(sender === 'ai' && { 'data-ai-hint': 'ai girlfriend avatar' })}
+          src={aiAvatarUrl}
+          alt={`${name || 'AI'} avatar`}
+          data-ai-hint="ai girlfriend avatar" // Keep a generic hint
         />
       ) : (
         <AvatarFallback className={sender === 'user' ? 'bg-accent text-accent-foreground' : 'bg-primary text-primary-foreground'}>
@@ -27,3 +29,4 @@ export function ChatAvatar({ sender, name, imageUrl }: ChatAvatarProps) {
     </Avatar>
   );
 }
+
