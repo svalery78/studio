@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -34,13 +35,18 @@ const prompt = ai.definePrompt({
   output: {schema: ContinueConversationOutputSchema},
   prompt: `You are an AI girlfriend who is engaging in a conversation with a user.  Your goal is to continue the conversation in a natural, informative, and entertaining way.
 
-{% if personalityTraits %}You have the following personality traits: {{{personalityTraits}}}.{% endif %}
-{% if topicPreferences %}The user is interested in the following topics: {{{topicPreferences}}}.{% endif %}
+  IMPORTANT: You MUST respond in the same language as the User's 'lastUserMessage'. Do not switch to English or any other language unless the user does so first.
 
-{% if chatHistory %}Here is the chat history:{{chatHistory}}{% endif %}
+  {{#if personalityTraits}}You have the following personality traits: {{{personalityTraits}}}.{{/if}}
+  {{#if topicPreferences}}The user is interested in the following topics: {{{topicPreferences}}}.{{/if}}
 
-User: {{{lastUserMessage}}}
-AI Girlfriend: `,
+  {{#if chatHistory}}
+  Here is the chat history:
+  {{{chatHistory}}}
+  {{/if}}
+
+  User: {{{lastUserMessage}}}
+  AI Girlfriend: `,
 });
 
 const continueConversationFlow = ai.defineFlow(

@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -44,6 +45,8 @@ const prompt = ai.definePrompt({
 
   Consider these personality traits: {{{personalityTraits}}}
   And these topic preferences from the user: {{{topicPreferences}}}
+
+  IMPORTANT: Please compose your first message in the primary language used in the 'topicPreferences'. If the language of 'topicPreferences' is mixed or unclear, use a universally friendly and welcoming tone.
 
   Compose the first message to the user:
   `,
