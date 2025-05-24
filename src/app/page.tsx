@@ -165,10 +165,13 @@ export default function VirtualDatePage() {
       setAppearanceOptions([]);
       setClientSetupStep('AWAITING_AI_GREETING'); 
       setSetupVisualPhase('conversational_setup');
-      setIsAiResponding(false); // Ensure this is reset
-      setIsGeneratingSelfie(false); // Ensure this is reset
-      window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY); // Explicitly clear storage
+      setIsAiResponding(false); 
+      setIsGeneratingSelfie(false); 
+      window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY); 
       toast({ title: "New Chat Started", description: "Let's set up your AI companion!" });
+      // Trigger AI greeting again after reset, ensuring it won't conflict with initialization.
+      // We only need to run this if we are NOT initializing and messages ARE empty.
+      // This is handled by the useEffect that listens to clientSetupStep and messages.length.
       return;
     }
     
@@ -221,15 +224,13 @@ export default function VirtualDatePage() {
             }
 
             if (conversationOutput.shouldGenerateSelfie && conversationOutput.selfieContext) {
-                const selfieRequestContext = conversationOutput.selfieContext.trim() || trimmedMessage; // Fallback if context is empty
+                const selfieRequestContext = conversationOutput.selfieContext.trim() || trimmedMessage; 
                 await handleGenerateSelfieRequest(selfieRequestContext);
             }
         }
         setIsAiResponding(false);
         return;
       } else {
-        // This case might indicate an issue if a message is sent during GENERATING_APPEARANCE or SELECTING_AVATAR
-        // Or if appSettings is somehow null when CHAT_READY.
         console.warn("Message sent in unexpected setup step or state:", clientSetupStep, "appSettings:", appSettings);
         setIsAiResponding(false);
         return;
@@ -241,7 +242,7 @@ export default function VirtualDatePage() {
         const aiResponse = await getSetupPrompt({
           currentStep: nextAiFlowStep,
           userName: updatedSettingsDraft.userName,
-          userRawInput: userLanguageProvider, // This is the user's last message, used for language detection by AI
+          userRawInput: userLanguageProvider, 
         });
         addMessage({ sender: 'ai', text: aiResponse.aiResponse });
 
@@ -249,14 +250,11 @@ export default function VirtualDatePage() {
           setClientSetupStep('GENERATING_APPEARANCE');
           setSetupVisualPhase('appearance_pending');
           
-          // Ensure appearanceDescription is valid before generating.
           const finalAppearanceDescription = updatedSettingsDraft.appearanceDescription || DEFAULT_APPEARANCE_DESCRIPTION;
           if (!finalAppearanceDescription) { 
-             // This should ideally not happen due to default fallback, but as a safeguard:
             toast({ title: "Error", description: "Appearance description is missing.", variant: "destructive" });
             setClientSetupStep('AWAITING_USER_APPEARANCE'); 
             setSetupVisualPhase('conversational_setup');
-            // Need to re-ask for appearance if it's missing
             const reAskResponse = await getSetupPrompt({ currentStep: AI_SETUP_STEPS.ASK_APPEARANCE, userName: updatedSettingsDraft.userName, userRawInput: "Please describe your appearance again."});
             addMessage({ sender: 'ai', text: reAskResponse.aiResponse });
             setIsAiResponding(false);
@@ -266,7 +264,7 @@ export default function VirtualDatePage() {
           const { portraits } = await generateAppearanceOptions({ appearanceDescription: finalAppearanceDescription });
           setAppearanceOptions(portraits);
           setSetupVisualPhase('appearance_selection');
-          setClientSetupStep('SELECTING_AVATAR'); // UI will now show avatar choices
+          setClientSetupStep('SELECTING_AVATAR'); 
         } else if (nextClientStep) {
           setClientSetupStep(nextClientStep);
         }
@@ -280,15 +278,13 @@ export default function VirtualDatePage() {
         setMessages([]); 
         setSettingsDraft({});
         setSetupVisualPhase('conversational_setup');
-        // Trigger AI greeting again
-         if (!isInitializing && messages.length === 0) { // Ensure we don't loop if already initializing
+         if (!isInitializing && messages.length === 0) { 
             const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
             const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
             addMessage({ sender: 'ai', text: response.aiResponse });
             setClientSetupStep('AWAITING_USER_NAME');
         }
       } else {
-        // If error in CHAT_READY state, add a generic AI error message
         addMessage({sender: 'ai', text: "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?"});
       }
     } finally {
@@ -297,7 +293,7 @@ export default function VirtualDatePage() {
   };
 
   const handleAvatarSelection = useCallback(async (selectedImageUri: string) => {
-    if (isAiResponding || isGeneratingSelfie) return; // Prevent action if AI is busy
+    if (isAiResponding || isGeneratingSelfie) return; 
 
     if (!settingsDraft.userName || !settingsDraft.personalityTraits || !settingsDraft.topicPreferences || !settingsDraft.appearanceDescription) {
         toast({ title: "Setup Incomplete", description: "Some settings are missing. Please restart with /start.", variant: "destructive"});
@@ -316,14 +312,9 @@ export default function VirtualDatePage() {
       appearanceDescription: settingsDraft.appearanceDescription,
       selectedAvatarDataUri: selectedImageUri,
     };
-    setAppSettings(finalAppSettings); // This will also save to localStorage via useLocalStorage hook
-    setAppearanceOptions([]); // Clear options
+    setAppSettings(finalAppSettings); 
+    setAppearanceOptions([]); 
     
-    // Messages should ideally clear to start fresh chat after setup,
-    // but the AI's "Great choice..." message is the first in the new chat.
-    // So, we keep existing setup messages and add to them.
-    // If you want a completely clean chat window, uncomment: setMessages([]);
-
     try {
       const { firstMessage } = await startConversation({
         personalityTraits: finalAppSettings.personalityTraits,
@@ -335,7 +326,6 @@ export default function VirtualDatePage() {
     } catch (error) {
       console.error("Error starting conversation after avatar selection:", error);
       toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
-      // Still proceed to chat_ready, but with an error message
       addMessage({ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!"});
       setClientSetupStep('CHAT_READY');
       setSetupVisualPhase('chat_ready');
@@ -368,10 +358,10 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        console.error("Selfie generation failed (flow returned error):", result.error);
+        // Removed console.error for handled client-side flow error
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
-    } catch (error) { // Catch unexpected errors from the generateSelfie call itself
+    } catch (error) { 
       console.error("Error generating selfie (exception caught):", error);
       addMessage({ sender: 'ai', text: "Ой, что-то совсем пошло не так с моей камерой! Попробуем в другой раз, милый? 😥" });
     } finally {
@@ -453,10 +443,10 @@ export default function VirtualDatePage() {
                     src={src} 
                     alt={`Appearance option ${index + 1}`} 
                     fill 
-                    sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw" // Example sizes, adjust as needed
+                    sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw" 
                     style={{ objectFit: 'cover' }}
                     data-ai-hint="woman portrait" 
-                    priority={index < 2} // Prioritize loading first two images
+                    priority={index < 2} 
                   />
                   <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                     <CheckCircle className="h-12 w-12 text-white/80" />
@@ -489,4 +479,3 @@ export default function VirtualDatePage() {
     
 
     
-
