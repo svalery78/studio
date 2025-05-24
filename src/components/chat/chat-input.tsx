@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 
 interface ChatInputProps {
   onSendMessage: (messageText: string) => void;
-  onSelfieRequest: () => void;
+  onSelfieRequest: (messageText?: string) => void; // Optional messageText
   isSending: boolean;
   inputDisabled?: boolean; // Prop to specifically disable the text input
   selfieDisabled?: boolean; // Prop to specifically disable the selfie button
@@ -39,6 +39,16 @@ export function ChatInput({
     }
   };
 
+  const handleSelfieRequest = () => {
+    // If user types "selfie" and clicks the button, we can pass the input value
+    // Otherwise, it's just a button click without specific text.
+    // The main page logic will handle the "selfie" keyword from text input anyway.
+    // This button can simply trigger the generic selfie request.
+    if (!isSending && !selfieDisabled) {
+      onSelfieRequest(); 
+    }
+  };
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -61,7 +71,7 @@ export function ChatInput({
                 type="button" 
                 variant="ghost" 
                 size="icon" 
-                onClick={onSelfieRequest} 
+                onClick={handleSelfieRequest} 
                 disabled={isSending || selfieDisabled} 
                 className="text-muted-foreground hover:text-accent-foreground"
               >
@@ -88,3 +98,4 @@ export function ChatInput({
     </form>
   );
 }
+

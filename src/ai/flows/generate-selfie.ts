@@ -4,7 +4,7 @@
 /**
  * @fileOverview Generates a photorealistic selfie of the AI girlfriend.
  * The AI decides the scene, clothing, and location based on its personality,
- * and considers recent chat history for location context.
+ * user's specific request, and considers recent chat history for location context.
  * It also uses a base image of the AI girlfriend to maintain appearance consistency.
  *
  * - generateSelfie - A function that handles the selfie generation process.
@@ -31,6 +31,10 @@ const GenerateSelfieInputSchema = z.object({
     .string()
     .optional()
     .describe("A base image data URI of the AI girlfriend to ensure appearance consistency. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
+  userSelfieRequestText: z
+    .string()
+    .optional()
+    .describe("The specific text the user used when requesting the selfie. This can provide direct clues for the scene."),
 });
 export type GenerateSelfieInput = z.infer<typeof GenerateSelfieInputSchema>;
 
@@ -49,30 +53,46 @@ export async function generateSelfie(input: GenerateSelfieInput): Promise<Genera
 
 const sceneDescriptionPrompt = ai.definePrompt({
   name: 'generateSelfieSceneDescriptionPrompt',
-  // Input schema now only needs personality and chat history for scene description
-  input: { schema: GenerateSelfieInputSchema.pick({ personalityTraits: true, topicPreferences: true, chatHistory: true }) },
+  // Input schema now includes userSelfieRequestText
+  input: { schema: GenerateSelfieInputSchema.pick({ personalityTraits: true, topicPreferences: true, chatHistory: true, userSelfieRequestText: true }) },
   output: { schema: z.object({ description: z.string().describe("A creative and detailed description of a photorealistic selfie scene (location, clothing, activity, mood) for an AI girlfriend. This description will be used to generate an image.") }) },
   prompt: `You are an AI girlfriend with the following personality: {{{personalityTraits}}}.
   {{#if topicPreferences}}The user you are chatting with enjoys: {{{topicPreferences}}}{{/if}}.
 
   You've decided to take a new, unique, photorealistic selfie for the user.
-  Your primary goal is to invent a creative and plausible scenario for this selfie based on your personality and the user's interests.
+  Your primary goal is to invent a creative and plausible scenario for this selfie.
 
-  {{#if chatHistory}}
-  Consider our recent conversation history for inspiration:
-  --- CHAT HISTORY (Last few messages) ---
-  {{{chatHistory}}}
-  --- END CHAT HISTORY ---
-  **Prioritize using a location that was clearly and recently mentioned in our chat history if it's suitable for a selfie.** If no specific, suitable location is found in the chat history, then pick a location that fits your personality.
+  {{#if userSelfieRequestText}}
+  The user specifically requested the selfie with this message: "{{{userSelfieRequestText}}}"
+  **Carefully analyze this request. If it contains any specific details about the desired location, activity, clothing, or mood, prioritize those details in your scene description.**
+  {{/if}}
+
+  If the user's request ("{{{userSelfieRequestText}}}") was generic or didn't specify a scene:
+    {{#if chatHistory}}
+    Consider our recent conversation history for inspiration:
+    --- CHAT HISTORY (Last few messages) ---
+    {{{chatHistory}}}
+    --- END CHAT HISTORY ---
+    **If the user's request was generic, try to use a location that was clearly and recently mentioned in our chat history if it's suitable for a selfie.**
+    {{/if}}
+    If neither the user's specific request nor the chat history provide a clear location or theme, then pick a location that fits your personality.
   {{else}}
-  Pick a location that fits your personality.
+    {{#if chatHistory}}
+    Consider our recent conversation history for inspiration:
+    --- CHAT HISTORY (Last few messages) ---
+    {{{chatHistory}}}
+    --- END CHAT HISTORY ---
+    **Prioritize using a location that was clearly and recently mentioned in our chat history if it's suitable for a selfie.** If no specific, suitable location is found in the chat history, then pick a location that fits your personality.
+    {{else}}
+    Pick a location that fits your personality.
+    {{/if}}
   {{/if}}
 
   Describe the scene in detail for an image generation model:
-  - Where are you? (e.g., cozy cafe, sunny park, home studio, vibrant street market, scenic viewpoint, getting ready in front of a mirror. If a location from chat history is used, specify it here. If not, invent one based on your personality.)
-  - What are you wearing? (Invent this based on your personality and the location.)
-  - What are you doing? (e.g., smiling at the camera, holding a coffee, reading a book, mid-laugh, winking. Invent this.)
-  - What's your mood? (e.g., happy, playful, thoughtful, relaxed, a bit flirty. Invent this.)
+  - Where are you? (Prioritize hints from user's request "{{{userSelfieRequestText}}}", then chat history, then your personality.)
+  - What are you wearing? (Prioritize hints from user's request "{{{userSelfieRequestText}}}", then invent based on your personality and the location.)
+  - What are you doing? (Prioritize hints from user's request "{{{userSelfieRequestText}}}", then invent e.g., smiling at the camera, holding a coffee, reading a book, mid-laugh, winking.)
+  - What's your mood? (Prioritize hints from user's request "{{{userSelfieRequestText}}}", then invent e.g., happy, playful, thoughtful, relaxed, a bit flirty.)
 
   The image MUST be photorealistic. Ensure your description guides towards a high-quality, realistic photo of you.
   Your description should be detailed enough for an image generation model to create a compelling image.
@@ -87,11 +107,12 @@ const generateSelfieFlow = ai.defineFlow(
     outputSchema: GenerateSelfieOutputSchema,
   },
   async (input: GenerateSelfieInput) => {
-    // Generate scene description based on personality, preferences, and chat history
+    // Generate scene description based on personality, preferences, chat history, and specific user request
     const scenePromptResponse = await sceneDescriptionPrompt({
       personalityTraits: input.personalityTraits,
       topicPreferences: input.topicPreferences,
       chatHistory: input.chatHistory,
+      userSelfieRequestText: input.userSelfieRequestText, // Pass the user's request text
     }); 
     const generatedSceneDescriptionForImage = scenePromptResponse.output?.description;
 

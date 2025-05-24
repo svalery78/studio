@@ -203,7 +203,7 @@ export default function VirtualDatePage() {
         const lowerMessageText = trimmedMessage.toLowerCase();
         const selfieKeywords = ['selfie', 'селфи', 'фото', 'photo', 'picture', 'pic'];
         if (selfieKeywords.some(keyword => lowerMessageText.includes(keyword))) {
-          await handleGenerateSelfieRequest();
+          await handleGenerateSelfieRequest(trimmedMessage); // Pass the user's request text
         } else {
           const chatHistory = messages
             .slice(-6, -1) 
@@ -306,7 +306,7 @@ export default function VirtualDatePage() {
     }
   }, [settingsDraft, setAppSettings, toast, addMessage]);
   
-  const handleGenerateSelfieRequest = async () => {
+  const handleGenerateSelfieRequest = async (userRequestText: string) => {
     if (!appSettings || !appSettings.selectedAvatarDataUri || clientSetupStep !== 'CHAT_READY') return;
 
     setIsGeneratingSelfie(true);    
@@ -321,6 +321,7 @@ export default function VirtualDatePage() {
         topicPreferences: appSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
         baseImageDataUri: appSettings.selectedAvatarDataUri,
+        userSelfieRequestText: userRequestText, // Pass the user's request text
       });
       addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
     } catch (error) {
@@ -357,11 +358,17 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={handleGenerateSelfieRequest} 
+              // onSelfieRequest no longer directly called from ChatInput for conversational setup phase
+              // It's handled by handleSendMessage if a selfie keyword is detected
+              onSelfieRequest={() => {
+                  // This can be a no-op or log a warning if called during setup
+                  console.warn("Selfie request button pressed during conversational setup. Should be disabled.");
+                }
+              }
               isSendingMessage={isAiResponding}
               appSettings={appSettings} 
               chatInputDisabled={isAiResponding || (clientSetupStep !== 'AWAITING_USER_NAME' && clientSetupStep !== 'AWAITING_USER_PERSONALITY' && clientSetupStep !== 'AWAITING_USER_TOPICS' && clientSetupStep !== 'AWAITING_USER_APPEARANCE')}
-              selfieButtonDisabled={true} 
+              selfieButtonDisabled={true} // Always disabled during conversational setup
             />
           </div>
         )}
@@ -399,9 +406,9 @@ export default function VirtualDatePage() {
                   <Image 
                     src={src} 
                     alt={`Appearance option ${index + 1}`} 
-                    fill // Changed from layout="fill"
-                    sizes="(max-width: 640px) 100vw, 50vw" // Added sizes for responsive images
-                    objectFit="cover"
+                    fill 
+                    sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw"
+                    style={{ objectFit: 'cover' }}
                     data-ai-hint="woman portrait" 
                   />
                   <div className="absolute inset-0 bg-black/30 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
@@ -420,7 +427,7 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={handleGenerateSelfieRequest}
+              onSelfieRequest={(userText) => handleGenerateSelfieRequest(userText || "")} // Pass user text if available
               isSendingMessage={isAiResponding || isGeneratingSelfie}
               appSettings={appSettings}
               chatInputDisabled={isAiResponding || isGeneratingSelfie}

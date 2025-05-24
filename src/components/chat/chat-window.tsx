@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 interface ChatWindowProps {
   messages: Message[];
   onSendMessage: (messageText: string) => void;
-  onSelfieRequest: () => void;
+  onSelfieRequest: (messageText?: string) => void; // Now accepts optional messageText
   isSendingMessage: boolean;
   appSettings: AppSettings | null;
   chatInputDisabled?: boolean; // Added to disable input during setup phases
@@ -50,11 +50,12 @@ export function ChatWindow({
       </ScrollArea>
       <ChatInput
         onSendMessage={onSendMessage}
-        onSelfieRequest={onSelfieRequest}
+        onSelfieRequest={onSelfieRequest} // Pass it down
         isSending={isSendingMessage}
-        inputDisabled={chatInputDisabled || isSendingMessage} // Combine general sending state with specific disable prop
-        selfieDisabled={selfieButtonDisabled || isSendingMessage} // Combine general sending state with specific disable prop
+        inputDisabled={chatInputDisabled || isSendingMessage} 
+        selfieDisabled={selfieButtonDisabled || isSendingMessage}
       />
     </div>
   );
 }
+
