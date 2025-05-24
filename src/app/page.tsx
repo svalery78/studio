@@ -325,8 +325,8 @@ export default function VirtualDatePage() {
       addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
     } catch (error) {
       console.error("Error generating selfie:", error);
-      toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" });
-      addMessage({ sender: 'ai', text: "Oops, I couldn't take a selfie right now. Maybe the camera is shy!" });
+      // toast({ title: "Selfie Error", description: "Could not generate selfie.", variant: "destructive" }); // Removed toast
+      addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
     } finally {
       setIsGeneratingSelfie(false);
     }
@@ -399,7 +399,8 @@ export default function VirtualDatePage() {
                   <Image 
                     src={src} 
                     alt={`Appearance option ${index + 1}`} 
-                    layout="fill" 
+                    fill // Changed from layout="fill"
+                    sizes="(max-width: 640px) 100vw, 50vw" // Added sizes for responsive images
                     objectFit="cover"
                     data-ai-hint="woman portrait" 
                   />
@@ -431,5 +432,6 @@ export default function VirtualDatePage() {
     </div>
   );
 }
+    
 
     
