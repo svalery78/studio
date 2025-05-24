@@ -41,9 +41,11 @@ export type GenerateSelfieInput = z.infer<typeof GenerateSelfieInputSchema>;
 const GenerateSelfieOutputSchema = z.object({
   selfieDataUri: z
     .string()
+    .optional()
     .describe(
       "The generated selfie image as a data URI. Expected format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
+  error: z.string().optional().describe("An error message if selfie generation failed.")
 });
 export type GenerateSelfieOutput = z.infer<typeof GenerateSelfieOutputSchema>;
 
@@ -107,7 +109,7 @@ const generateSelfieFlow = ai.defineFlow(
     inputSchema: GenerateSelfieInputSchema,
     outputSchema: GenerateSelfieOutputSchema,
   },
-  async (input: GenerateSelfieInput) => {
+  async (input: GenerateSelfieInput): Promise<GenerateSelfieOutput> => {
     const scenePromptResponse = await sceneDescriptionPrompt({
       personalityTraits: input.personalityTraits,
       topicPreferences: input.topicPreferences,
@@ -117,33 +119,39 @@ const generateSelfieFlow = ai.defineFlow(
     const generatedSceneDescriptionForImage = scenePromptResponse.output?.description;
 
     if (!generatedSceneDescriptionForImage) {
-      throw new Error('Failed to generate selfie scene description for image generation.');
+      console.error('Failed to generate selfie scene description for image generation.');
+      return { error: 'Failed to generate selfie scene description.' };
     }
 
     let imagePromptParts: any[] = [];
     if (input.baseImageDataUri) {
       imagePromptParts.push({ media: { url: input.baseImageDataUri } });
-      // Emphasize using the person from the base image.
       imagePromptParts.push({ text: `Generate a new photorealistic selfie. **It is crucial to depict the person from the provided base image (maintaining their hair color, facial features, etc.).** Scene details: ${generatedSceneDescriptionForImage}. Ensure the image is high quality, detailed, with realistic lighting.` });
     } else {
       imagePromptParts.push({ text: `Photorealistic selfie of a virtual girlfriend. Scene: ${generatedSceneDescriptionForImage}. High quality, detailed, realistic lighting.` });
     }
     
-    const {media} = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-exp',
-      prompt: imagePromptParts,
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-      },
-    });
+    try {
+      const {media} = await ai.generate({
+        model: 'googleai/gemini-2.0-flash-exp',
+        prompt: imagePromptParts,
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+        },
+      });
 
-    if (!media || !media.url) {
-      throw new Error('Image generation failed or did not return a media URL.');
+      if (!media || !media.url) {
+        console.error('Image generation failed or did not return a media URL within flow.');
+        return { error: 'Image generation failed or did not return a media URL.' };
+      }
+      
+      return {
+        selfieDataUri: media.url,
+      };
+    } catch (e) {
+        console.error('Exception during ai.generate for selfie:', e);
+        return { error: 'An exception occurred during image generation.' };
     }
-    
-    return {
-      selfieDataUri: media.url,
-    };
   }
 );
 
