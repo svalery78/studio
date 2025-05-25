@@ -102,34 +102,46 @@ export default function VirtualDatePage() {
       const storedSettingsItem = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
 
       if (storedSettingsItem && storedSettingsItem !== "null") {
-        const parsedSettings = JSON.parse(storedSettingsItem) as AppSettings;
-        if (parsedSettings.selectedAvatarDataUri && parsedSettings.userName && parsedSettings.personalityTraits && parsedSettings.topicPreferences && parsedSettings.appearanceDescription) {
-          setAppSettings(parsedSettings);
-          setSettingsDraft(parsedSettings);
-          setClientSetupStep('CHAT_READY');
-          setSetupVisualPhase('chat_ready');
-          if (messages.length === 0) { 
-            setIsAiResponding(true);
-            try {
-              const { firstMessage } = await startConversation({
-                personalityTraits: parsedSettings.personalityTraits,
-                topicPreferences: parsedSettings.topicPreferences,
-              });
-              addMessage({ sender: 'ai', text: `Welcome back, ${parsedSettings.userName}! ${firstMessage}`});
-            } catch (error) {
-              console.error("Error restarting conversation:", error);
-              addMessage({ sender: 'ai', text: "I'm having a little trouble starting our chat right now. Let's try again in a moment!"});
-            } finally {
+        try {
+            const parsedSettings = JSON.parse(storedSettingsItem) as AppSettings;
+            if (parsedSettings.selectedAvatarDataUri && parsedSettings.userName && parsedSettings.personalityTraits && parsedSettings.topicPreferences && parsedSettings.appearanceDescription) {
+              setAppSettings(parsedSettings);
+              setSettingsDraft(parsedSettings);
+              setClientSetupStep('CHAT_READY');
+              setSetupVisualPhase('chat_ready');
+              if (messages.length === 0) { 
+                setIsAiResponding(true);
+                try {
+                  const { firstMessage } = await startConversation({
+                    personalityTraits: parsedSettings.personalityTraits,
+                    topicPreferences: parsedSettings.topicPreferences,
+                  });
+                  addMessage({ sender: 'ai', text: `Welcome back, ${parsedSettings.userName}! ${firstMessage}`});
+                } catch (error) {
+                  console.error("Error restarting conversation:", error);
+                  addMessage({ sender: 'ai', text: "I'm having a little trouble starting our chat right now. Let's try again in a moment!"});
+                } finally {
+                  setIsAiResponding(false);
+                }
+              }
+            } else {
+              // Incomplete settings, restart setup
+              console.warn("Stored settings were incomplete. Restarting setup.");
+              setAppSettings(null); 
+              window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY);
+              setClientSetupStep('AWAITING_AI_GREETING');
+              setSetupVisualPhase('conversational_setup');
+              setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
               setIsAiResponding(false);
             }
-          }
-        } else {
-          setAppSettings(null); 
-          window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY);
-          setClientSetupStep('AWAITING_AI_GREETING');
-          setSetupVisualPhase('conversational_setup');
-          setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
-          setIsAiResponding(false);
+        } catch (e) {
+            console.error("Error parsing stored settings. Restarting setup.", e);
+            setAppSettings(null); 
+            window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY);
+            setClientSetupStep('AWAITING_AI_GREETING');
+            setSetupVisualPhase('conversational_setup');
+            setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
+            setIsAiResponding(false);
         }
       } else {
         setAppSettings(null);
@@ -205,12 +217,11 @@ export default function VirtualDatePage() {
     try {
       if (pendingProactiveSelfie && appSettings) {
         const userResponseLower = trimmedMessage.toLowerCase();
-        // More robust keyword checking for affirmative/negative responses
         const affirmativeKeywords = ['yes', 'sure', 'ok', 'да', 'ага', 'конечно', 'давай', 'please', 'yep', 'ja', 'si', 'хочу', 'покажи', 'валяй', 'го', 'okey', 'okay', 'fine', 'alright', 'sounds good'];
         const negativeKeywords = ['no', 'not', 'don\'t', 'нет', 'не надо', 'не хочу', 'nein', 'non', 'откажусь', 'неа', 'nah', 'nope', 'skip'];
         
         let isAffirmative = false;
-        const wordsInResponse = userResponseLower.split(/\s+/);
+        const wordsInResponse = userResponseLower.split(/\\s+/);
 
         for (const keyword of affirmativeKeywords) {
             if (wordsInResponse.includes(keyword)) {
@@ -218,9 +229,9 @@ export default function VirtualDatePage() {
                 break;
             }
         }
-        if (isAffirmative) { // Check for negations if an affirmative was found
+        if (isAffirmative) { 
             for (const negKeyword of negativeKeywords) {
-                if (userResponseLower.includes(negKeyword)) { // Broader check for negation in the whole phrase
+                if (userResponseLower.includes(negKeyword)) { 
                     isAffirmative = false;
                     break;
                 }
@@ -232,21 +243,19 @@ export default function VirtualDatePage() {
           await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings);
         } else {
           addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
-          // AI should continue conversation with the user's message that was a response to the selfie offer.
-          // So, call continueConversation again with user's current message.
+          // Continue conversation with user's response to the selfie offer
           const conversationOutput: ContinueConversationOutput = await continueConversation({
-              lastUserMessage: trimmedMessage, // User's actual response ("no thanks", "maybe later")
-              chatHistory: messages.slice(-7, -1) // Include context before AI offered selfie
+              lastUserMessage: trimmedMessage, 
+              chatHistory: messages.slice(-7, -1) 
                   .map(msg => `${msg.sender === 'user' ? (appSettings?.userName || 'User') : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
-                  .join('\n'),
+                  .join('\\n'),
               personalityTraits: appSettings.personalityTraits,
               topicPreferences: appSettings.topicPreferences,
           });
           if (conversationOutput.responseText) {
               addMessage({ sender: 'ai', text: conversationOutput.responseText });
           }
-          // Handle potential nested selfie/music from this new response (though unlikely)
-           if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
+          if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
               await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
               setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
@@ -254,14 +263,9 @@ export default function VirtualDatePage() {
            if (conversationOutput.musicPlayback) {
             handleMusicPlayback(conversationOutput);
           }
-
         }
         setPendingProactiveSelfie(null);
-        setIsAiResponding(false); 
-        return; 
-      }
-
-      if (clientSetupStep !== 'CHAT_READY' && clientSetupStep !== 'SELECTING_VOICE') {
+      } else if (clientSetupStep !== 'CHAT_READY' && clientSetupStep !== 'SELECTING_VOICE') {
         let nextAiFlowStep: AiSetupStep | null = null;
         let nextClientStep: ClientSetupStep | null = null;
         let updatedSettingsDraft = { ...settingsDraft };
@@ -284,10 +288,10 @@ export default function VirtualDatePage() {
             if (affirmative) {
                 setClientSetupStep('SELECTING_VOICE');
                 setSetupVisualPhase('voice_selection');
-                setIsAiResponding(false);
+                setIsAiResponding(false); // AI has asked, now user selects
                 return; 
             } else {
-                updatedSettingsDraft.selectedVoiceName = null;
+                updatedSettingsDraft.selectedVoiceName = null; // User declined custom voice
                 nextAiFlowStep = AI_SETUP_STEPS.ASK_APPEARANCE;
                 nextClientStep = 'AWAITING_USER_APPEARANCE';
             }
@@ -338,7 +342,7 @@ export default function VirtualDatePage() {
         const chatHistory = messages
           .slice(-6, -1) 
           .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
-          .join('\n');
+          .join('\\n');
 
         const conversationOutput: ContinueConversationOutput = await continueConversation({
             lastUserMessage: trimmedMessage,
@@ -368,11 +372,13 @@ export default function VirtualDatePage() {
       console.error("Error during setup or conversation step:", error);
       toast({ title: "Error", description: "Something went wrong. Please try again or type /start.", variant: "destructive" });
       if (clientSetupStep !== 'CHAT_READY') {
+        // Reset to initial setup if error occurs during setup
         setClientSetupStep('AWAITING_AI_GREETING');
         setMessages([]); 
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
-        setIsAiResponding(false); // Ensure this is reset
+        setIsAiResponding(false);
+        // Re-trigger initial AI greeting if necessary
         if (!isInitializing && messages.length === 0) { 
             const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
             const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
@@ -380,6 +386,7 @@ export default function VirtualDatePage() {
             setClientSetupStep('AWAITING_USER_NAME');
         }
       } else {
+        // If error in CHAT_READY, just add an AI message
         addMessage({sender: 'ai', text: "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?"});
       }
     } finally {
@@ -389,23 +396,14 @@ export default function VirtualDatePage() {
 
   const handleMusicPlayback = (conversationOutput: ContinueConversationOutput) => {
     if (conversationOutput.musicPlayback) {
-      const { song, artist, status } = conversationOutput.musicPlayback;
-      if (status === 'playing_simulation') {
-        // The AI's responseText (already added to chat) should confirm this.
-        // Add a toast for the prototype limitation.
-        toast({
-          title: "Music Simulation",
-          description: `Playing: ${song}${artist ? ` by ${artist}` : ''}. (Note: Actual audio playback is not implemented in this prototype.)`,
-          duration: 7000, 
-        });
+      const { song, artist, status, youtubeSearchUrl } = conversationOutput.musicPlayback;
+      // The AI's responseText (already added by continueConversation) should contain the link.
+      // No additional toast is needed as the link is in the chat.
+      if (status === 'playing_simulation' && youtubeSearchUrl) {
+        // Message already sent by continueConversation
+        // Optionally, could log or do something else here if needed
       } else if (status === 'could_not_identify') {
-        // AI's responseText (already added to chat) should cover this.
-        // Optionally, add a toast if more explicit feedback is desired.
-        // toast({
-        //   title: "Music Request",
-        //   description: `I couldn't identify the song you asked for.`,
-        //   variant: "destructive",
-        // });
+        // Message already sent by continueConversation
       }
     }
   };
@@ -428,12 +426,12 @@ export default function VirtualDatePage() {
       setSetupVisualPhase('chat_ready');
       setIsAiResponding(false);
     } else { // Part of initial setup
-      setSetupVisualPhase('conversational_setup');
+      setSetupVisualPhase('conversational_setup'); // Return to chat for next setup question
       try {
         const aiResponse = await getSetupPrompt({
           currentStep: AI_SETUP_STEPS.ASK_APPEARANCE,
           userName: newSettingsDraft.userName || DEFAULT_SETTINGS_DRAFT.userName,
-          userRawInput: voiceName ? `I've selected voice: ${voiceName}` : "I'll use the default voice.",
+          userRawInput: voiceName ? `I've selected voice: ${voiceName}` : "I'll use the default voice.", // Provide context
         });
         addMessage({ sender: 'ai', text: aiResponse.aiResponse });
         setClientSetupStep('AWAITING_USER_APPEARANCE');
@@ -453,11 +451,23 @@ export default function VirtualDatePage() {
 
     if (!currentDraft.userName || !currentDraft.personalityTraits || !currentDraft.topicPreferences || !currentDraft.appearanceDescription) {
         toast({ title: "Setup Incomplete", description: "Some settings are missing. Please restart with /start.", variant: "destructive"});
+        // Reset to the beginning of the setup process
         setClientSetupStep('AWAITING_AI_GREETING'); 
         setMessages([]);
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
         setIsAiResponding(false);
+        // Potentially re-trigger initial AI greeting
+        if (!isInitializing && messages.length === 0) {
+            setIsAiResponding(true);
+            try {
+                const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
+                const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
+                addMessage({ sender: 'ai', text: response.aiResponse });
+                setClientSetupStep('AWAITING_USER_NAME');
+            } catch (e) { console.error(e); } 
+            finally { setIsAiResponding(false); }
+        }
         return;
     }
     setIsAiResponding(true); 
@@ -478,12 +488,14 @@ export default function VirtualDatePage() {
         personalityTraits: finalAppSettings.personalityTraits,
         topicPreferences: finalAppSettings.topicPreferences,
       });
+      // Clear previous setup messages and start with a fresh AI greeting for chat
       setMessages([{ sender: 'ai', text: `Great choice, ${finalAppSettings.userName}! I'm all set up. ${firstMessage}`, id: Date.now().toString(), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY');
       setSetupVisualPhase('chat_ready');
     } catch (error) {
       console.error("Error starting conversation after avatar selection:", error);
       toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
+      // Still set to CHAT_READY, but with an error message
       setMessages([{ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!", id: Date.now().toString(), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY'); 
       setSetupVisualPhase('chat_ready');
@@ -491,9 +503,9 @@ export default function VirtualDatePage() {
       setIsAiResponding(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie ]);
+  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, initialLanguageHint, isInitializing ]);
   
-  const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings) => {
+  const handleGenerateSelfieRequest = async (userSelfieRequestText: string, currentAppSettings: AppSettings) => {
     if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding) return;
 
     setIsGeneratingSelfie(true);    
@@ -502,14 +514,14 @@ export default function VirtualDatePage() {
       const chatHistoryForSelfie = messages
         .slice(-5) 
         .map(msg => `${msg.sender === 'user' ? currentAppSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
-        .join('\n');
+        .join('\\n');
 
       const selfieInput: GenerateSelfieInput = {
         personalityTraits: currentAppSettings.personalityTraits,
         topicPreferences: currentAppSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
         baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
-        userSelfieRequestText: selfieContext,
+        userSelfieRequestText: userSelfieRequestText,
       };
       
       const result: GenerateSelfieOutput = await generateSelfie(selfieInput);
@@ -517,9 +529,10 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
+        // result.error from flow is handled here
+        addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
-    } catch (error) { 
+    } catch (error) { // Catch unexpected errors from the generateSelfie call itself or network issues
       console.error("Unexpected error in handleGenerateSelfieRequest:", error);
       addMessage({ sender: 'ai', text: "Ой, что-то совсем пошло не так с моей камерой! Попробуем в другой раз, милый? 😥" });
     } finally {
@@ -552,9 +565,8 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={(userText) => { // This is now only for the explicit selfie button
+              onSelfieRequest={(userText) => {
                   if (clientSetupStep === 'CHAT_READY' && appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie) {
-                     // For explicit button click, context can be simple
                      handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
                   }
                 }
@@ -565,6 +577,9 @@ export default function VirtualDatePage() {
                 isAiResponding || 
                 isGeneratingSelfie || 
                 clientSetupStep === 'SELECTING_VOICE' || 
+                clientSetupStep === 'AWAITING_AI_CONFIRMATION' || // Disable input while AI confirms before generation
+                clientSetupStep === 'GENERATING_APPEARANCE' || // Disable while generating
+                clientSetupStep === 'SELECTING_AVATAR' || // Disable while selecting avatar
                 (clientSetupStep !== 'AWAITING_USER_NAME' &&
                  clientSetupStep !== 'AWAITING_USER_PERSONALITY' &&
                  clientSetupStep !== 'AWAITING_USER_TOPICS' &&
@@ -640,7 +655,7 @@ export default function VirtualDatePage() {
             <ChatWindow
               messages={messages}
               onSendMessage={handleSendMessage}
-              onSelfieRequest={(userText) => { // This is now only for the explicit selfie button
+              onSelfieRequest={(userText) => {
                 if (appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie) {
                   handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
                 }
@@ -656,3 +671,4 @@ export default function VirtualDatePage() {
     </div>
   );
 }
+

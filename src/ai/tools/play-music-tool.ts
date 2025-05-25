@@ -1,7 +1,7 @@
 
 /**
  * @fileOverview A Genkit tool for handling music playback requests.
- * This tool simulates finding a song but does not actually play audio.
+ * This tool simulates finding a song and constructs a YouTube search URL.
  */
 
 import {ai} from '@/ai/genkit';
@@ -16,13 +16,14 @@ export const PlayMusicOutputSchema = z.object({
   song: z.string().describe('The title of the song identified.'),
   artist: z.string().optional().describe('The artist of the song, if identified.'),
   status: z.enum(['playing_simulation', 'could_not_identify', 'error_in_tool']).describe('Status of the music request handling.'),
+  youtubeSearchUrl: z.string().optional().describe('A YouTube search URL for the identified song and artist.'),
 });
 export type PlayMusicOutput = z.infer<typeof PlayMusicOutputSchema>;
 
 export const playMusicTool = ai.defineTool(
   {
     name: 'playMusic',
-    description: 'Identifies a song and artist from a user query. Use this tool when the user asks to play music, a specific song, or an artist. This tool helps determine what music the user wants.',
+    description: 'Identifies a song and artist from a user query and provides a YouTube search link. Use this tool when the user asks to play music, a specific song, or an artist.',
     inputSchema: PlayMusicInputSchema,
     outputSchema: PlayMusicOutputSchema,
   },
@@ -35,7 +36,6 @@ export const playMusicTool = ai.defineTool(
       };
     }
 
-    // Simple parsing attempt: "Song Title by Artist Name"
     const bySeparator = " by ";
     let songTitle = input.query;
     let artistName: string | undefined = undefined;
@@ -48,19 +48,23 @@ export const playMusicTool = ai.defineTool(
       artistName = input.query.substring(byIndex + bySeparator.length).trim();
     }
     
-    if (!songTitle && artistName) { // e.g. "play by Taylor Swift"
-        songTitle = "songs"; // placeholder
+    if (!songTitle && artistName) { 
+        songTitle = "songs"; // placeholder if only artist is given
     } else if (!songTitle) {
         return {
             song: 'Unknown Song',
             status: 'could_not_identify',
         };
     }
+
+    const searchQuery = encodeURIComponent(`${songTitle}${artistName ? ` ${artistName}` : ''}`);
+    const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${searchQuery}`;
     
     return {
       song: songTitle,
       artist: artistName,
-      status: 'playing_simulation',
+      status: 'playing_simulation', // Status indicates the tool tried to "play"
+      youtubeSearchUrl: youtubeSearchUrl,
     };
   }
 );

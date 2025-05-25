@@ -5,7 +5,7 @@
  * @fileOverview A flow for continuing a conversation with an AI girlfriend.
  * It now includes logic to determine if a selfie should be generated based on implicit user requests
  * or if the AI should proactively offer a selfie after user confirmation.
- * It also handles music playback requests using a tool.
+ * It also handles music playback requests using a tool, providing a YouTube search link.
  *
  * - continueConversation - A function that handles the conversation continuation process.
  * - ContinueConversationInput - The input type for the continueConversation function.
@@ -30,11 +30,11 @@ const SelfieDecisionEnum = z.enum([
   'PROACTIVE_SELFIE_OFFER' // AI wants to offer a selfie, ask user first
 ]);
 
-const MusicPlaybackInfoSchema = PlayMusicOutputSchema.pick({ song: true, artist: true, status: true })
-  .describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM.");
+const MusicPlaybackInfoSchema = PlayMusicOutputSchema.pick({ song: true, artist: true, status: true, youtubeSearchUrl: true })
+  .describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM, including a YouTube search URL.");
 
 const ContinueConversationOutputSchema = z.object({
-  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question. If 'playing' music, this text should confirm the action."),
+  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question. If 'playing' music, this text should confirm the action and provide a YouTube link."),
   decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
   selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
   musicPlayback: MusicPlaybackInfoSchema.optional(),
@@ -67,10 +67,10 @@ User's last message: "{{{lastUserMessage}}}"
 Your response should be structured according to the output schema.
 
 Music Request Handling:
-If the user's message asks to play music, a song, or an artist (e.g., "play some jazz", "can you play 'Bohemian Rhapsody'?", "put on Taylor Swift"), you MUST use the 'playMusic' tool to identify the song/artist.
-- After the tool returns its result (song, artist, status):
-  - If 'status' is 'playing_simulation': Your 'responseText' should confirm playback, like "Sure, playing '{{musicPlayback.song}}'{{#if musicPlayback.artist}} by {{musicPlayback.artist}}{{/if}} for you now!" or "Alright, {{musicPlayback.song}}{{#if musicPlayback.artist}} by {{musicPlayback.artist}}{{/if}} coming right up!". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', and 'status' from the tool's result.
-  - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "I'm sorry, I couldn't quite catch what song you wanted. Could you try again?" or "Hmm, I didn't find a specific song. What would you like to hear?". You MUST populate the 'musicPlayback' field.
+If the user's message asks to play music, a song, or an artist (e.g., "play some jazz", "can you play 'Bohemian Rhapsody'?", "put on Taylor Swift"), you MUST use the 'playMusic' tool to identify the song/artist and get a YouTube search URL.
+- After the tool returns its result (song, artist, status, youtubeSearchUrl):
+  - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' should confirm playback and include the YouTube link, like "Конечно! Вот ссылка на YouTube для '{{musicPlayback.song}}'{{#if musicPlayback.artist}} от {{musicPlayback.artist}}{{/if}}: {{musicPlayback.youtubeSearchUrl}} Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '{{musicPlayback.song}}'{{#if musicPlayback.artist}} (исполнитель {{musicPlayback.artist}}){{/if}} на YouTube: {{musicPlayback.youtubeSearchUrl}}". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
+  - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "Я не совсем поняла, какую песню ты хочешь. Можешь повторить?" or "Хм, не удалось найти. Что бы ты хотел послушать?". You MUST populate the 'musicPlayback' field.
 - Set 'decision' for selfies to 'NORMAL_RESPONSE' when handling a music request, unless the music request *also* implies a selfie (very rare).
 
 Selfie Decision Logic (if not primarily a music request):
@@ -100,7 +100,7 @@ const continueConversationFlow = ai.defineFlow(
     outputSchema: ContinueConversationOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input); // In Genkit v1, prompt() returns an object with 'output'
+    const {output} = await prompt(input);
     
     if (!output) {
         console.warn('LLM output was undefined for continueConversationFlow. Falling back to default normal response.');
@@ -110,7 +110,6 @@ const continueConversationFlow = ai.defineFlow(
     // Validate output structure to ensure it adheres to the schema before returning
     if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
         console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
-        // Keep musicPlayback if it exists and is valid, even if selfie decision is bad
         return { 
             responseText: output.responseText || "I'm not sure what to say to that!", 
             decision: 'NORMAL_RESPONSE' as const,
@@ -130,7 +129,8 @@ const continueConversationFlow = ai.defineFlow(
     if (typeof output.responseText !== 'string') {
         console.warn(`AI responseText is not a string: ${output.responseText}. Falling back to default.`);
         output.responseText = "I'm a bit tongue-tied at the moment!";
-        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) { // Don't reset decision if music is playing
+        // Don't reset decision if music is playing or selfie context exists
+        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) {
             output.decision = 'NORMAL_RESPONSE' as const;
         }
     }
@@ -138,7 +138,10 @@ const continueConversationFlow = ai.defineFlow(
     // Ensure musicPlayback structure if present
     if (output.musicPlayback) {
         if (typeof output.musicPlayback.song !== 'string' || !output.musicPlayback.status) {
-            console.warn('MusicPlayback data from LLM is malformed. Clearing it.', output.musicPlayback);
+            console.warn('MusicPlayback data from LLM is malformed (missing song or status). Clearing it.', output.musicPlayback);
+            output.musicPlayback = undefined;
+        } else if (output.musicPlayback.status === 'playing_simulation' && typeof output.musicPlayback.youtubeSearchUrl !== 'string') {
+            console.warn('MusicPlayback data from LLM is malformed (missing youtubeSearchUrl for playing_simulation). Clearing it.', output.musicPlayback);
             output.musicPlayback = undefined;
         }
     }
