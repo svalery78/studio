@@ -22,23 +22,29 @@ export function VoiceSelector({
   isProcessing,
   currentSelectedVoiceName,
 }: VoiceSelectorProps) {
-  const [selectedVoiceNameInternal, setSelectedVoiceNameInternal] = useState<string | undefined>(
-    currentSelectedVoiceName ?? undefined
-  );
+  const [selectedVoiceIndex, setSelectedVoiceIndex] = useState<number | null>(null);
   const [isPreviewing, setIsPreviewing] = useState<string | null>(null); // Stores name of voice being previewed
   const { toast } = useToast();
 
   useEffect(() => {
-    // Sync internal state if the prop changes
-    setSelectedVoiceNameInternal(currentSelectedVoiceName ?? undefined);
-  }, [currentSelectedVoiceName]);
+    if (currentSelectedVoiceName && availableVoices.length > 0) {
+      const currentIndex = availableVoices.findIndex(v => v.name === currentSelectedVoiceName);
+      if (currentIndex !== -1) {
+        setSelectedVoiceIndex(currentIndex);
+      } else {
+        setSelectedVoiceIndex(null);
+      }
+    } else {
+      setSelectedVoiceIndex(null);
+    }
+  }, [currentSelectedVoiceName, availableVoices]);
 
 
   const handlePreviewVoice = (voice: SpeechSynthesisVoice) => {
     if (typeof window !== 'undefined' && window.speechSynthesis) {
       if (speechSynthesis.speaking) {
-        speechSynthesis.cancel(); 
-        if (isPreviewing === voice.name) { 
+        speechSynthesis.cancel();
+        if (isPreviewing === voice.name) {
           setIsPreviewing(null);
           return;
         }
@@ -58,19 +64,31 @@ export function VoiceSelector({
   };
 
   const handleConfirm = () => {
-    // selectedVoiceNameInternal will be either a string (name) or undefined
-    onVoiceSelected(selectedVoiceNameInternal || null);
+    if (selectedVoiceIndex !== null) {
+      const selectedVoice = availableVoices[selectedVoiceIndex];
+      onVoiceSelected(selectedVoice ? selectedVoice.name : null);
+    } else {
+      onVoiceSelected(null); // Should not happen if button is enabled, but as a fallback
+    }
   };
 
   const handleSelectDefault = () => {
-    setSelectedVoiceNameInternal(undefined); // Visually unselect any specific voice
+    setSelectedVoiceIndex(null); // Visually unselect any specific voice
     onVoiceSelected(null); // Inform parent to use default
   };
 
+  const handleRadioValueChange = (value: string) => {
+    const newIndex = parseInt(value, 10);
+    if (!isNaN(newIndex) && newIndex >= 0 && newIndex < availableVoices.length) {
+      setSelectedVoiceIndex(newIndex);
+    } else {
+      setSelectedVoiceIndex(null);
+    }
+  };
 
-  if (availableVoices.length === 0 && !isProcessing) { 
+  if (availableVoices.length === 0 && !isProcessing) {
     return (
-      <Card className="w-full max-w-md mx-auto my-auto shadow-xl">
+      <Card className="w-full max-w-lg mx-auto my-auto shadow-xl">
         <CardHeader>
           <CardTitle>Choose My Voice</CardTitle>
           <CardDescription>Loading available voices...</CardDescription>
@@ -91,15 +109,21 @@ export function VoiceSelector({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 max-h-[50vh] overflow-y-auto p-4">
-        <RadioGroup value={selectedVoiceNameInternal} onValueChange={setSelectedVoiceNameInternal}>
+        <RadioGroup 
+          value={selectedVoiceIndex !== null ? selectedVoiceIndex.toString() : undefined} 
+          onValueChange={handleRadioValueChange}
+        >
           {availableVoices.map((voice, index) => {
             const uniqueItemId = `voice-option-${index}`;
+            // Ensure voice.name is a string for display, fallback if not
+            const voiceDisplayName = (typeof voice.name === 'string' && voice.name.trim() !== '') ? voice.name : `Voice ${index + 1}`;
+            
             return (
               <div key={index} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50">
                 <div className="flex items-center space-x-3">
-                  <RadioGroupItem value={voice.name} id={uniqueItemId} disabled={isProcessing} />
+                  <RadioGroupItem value={index.toString()} id={uniqueItemId} disabled={isProcessing} />
                   <Label htmlFor={uniqueItemId} className="cursor-pointer">
-                    {voice.name} ({voice.lang}) {voice.default ? "[Default]" : ""}
+                    {voiceDisplayName} ({voice.lang}) {voice.default ? "[Default]" : ""}
                   </Label>
                 </div>
                 <Button
@@ -107,7 +131,7 @@ export function VoiceSelector({
                   size="icon"
                   onClick={() => handlePreviewVoice(voice)}
                   disabled={isProcessing || (speechSynthesis.speaking && isPreviewing !== voice.name)}
-                  aria-label={`Preview voice ${voice.name}`}
+                  aria-label={`Preview voice ${voiceDisplayName}`}
                   className="h-8 w-8"
                 >
                   {isPreviewing === voice.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
@@ -127,7 +151,7 @@ export function VoiceSelector({
         <Button variant="outline" onClick={handleSelectDefault} disabled={isProcessing}>
           Use Default Voice
         </Button>
-        <Button onClick={handleConfirm} disabled={isProcessing || selectedVoiceNameInternal === undefined}>
+        <Button onClick={handleConfirm} disabled={isProcessing || selectedVoiceIndex === null}>
           {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Confirm Selection
         </Button>
