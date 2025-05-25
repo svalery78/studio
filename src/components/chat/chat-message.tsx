@@ -146,7 +146,7 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
         setIsPlayingAudio(false);
       };
       utterance.onerror = (event) => {
-        console.error('SpeechSynthesisUtterance.onerror', event);
+        // console.error('SpeechSynthesisUtterance.onerror', event); // Removed this line
         setIsPlayingAudio(false);
         toast({ title: "Audio Error", description: "Could not play audio for this message.", variant: "destructive" });
       };
