@@ -69,8 +69,9 @@ Your response should be structured according to the output schema.
 Music Request Handling:
 If the user's message asks to play music, a song, or an artist (e.g., "play some jazz", "can you play 'Bohemian Rhapsody'?", "put on Taylor Swift"), you MUST use the 'playMusic' tool to identify the song/artist and get a YouTube search URL.
 - After the tool returns its result (song, artist, status, youtubeSearchUrl):
-  - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' MUST confirm playback and include the YouTube link. For example: "Конечно! Вот ссылка на YouTube для '[SONG_NAME_FROM_TOOL]' от '[ARTIST_FROM_TOOL]': [YOUTUBE_URL_FROM_TOOL] Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '[SONG_NAME_FROM_TOOL]' (исполнитель '[ARTIST_FROM_TOOL]') на YouTube: [YOUTUBE_URL_FROM_TOOL]". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
+  - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' is the MOST IMPORTANT part for the user. It MUST confirm playback and include the YouTube link directly. For example: "Конечно! Вот ссылка на YouTube для '[SONG_NAME_FROM_TOOL]' от '[ARTIST_FROM_TOOL]': [YOUTUBE_URL_FROM_TOOL] Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '[SONG_NAME_FROM_TOOL]' (исполнитель '[ARTIST_FROM_TOOL]') на YouTube: [YOUTUBE_URL_FROM_TOOL]". You MUST also populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
   - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "Я не совсем поняла, какую песню ты хочешь. Можешь повторить?" or "Хм, не удалось найти. Что бы ты хотел послушать?". You MUST populate the 'musicPlayback' field in your output with the 'song' (e.g., 'Unknown Song'), 'artist' (if any), and 'status: could_not_identify' from the tool's result.
+  - If 'status' is 'error_in_tool': Your 'responseText' should inform the user that there was an issue searching for the music, e.g., "Прости, солнышко, что-то пошло не так при поиске музыки. Попробуешь еще раз?". You MUST populate the 'musicPlayback' field with the 'song' (e.g., 'Unknown Song'), 'artist' (if any), and 'status: error_in_tool'.
 - If no music was requested or processed in this turn, the 'musicPlayback' field should be null or omitted entirely from the output.
 
 Selfie Decision Logic (if not primarily a music request):
@@ -107,20 +108,16 @@ const continueConversationFlow = ai.defineFlow(
         return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
     }
 
-    // Handle explicit null from LLM for musicPlayback - convert to undefined if schema expects optional but not nullable
-    // With .nullable() in schema, this specific conversion might not be strictly needed but doesn't hurt
     if (output.musicPlayback === null) {
         output.musicPlayback = undefined; 
     }
 
-
-    // Validate output structure to ensure it adheres to the schema before returning
     if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
         console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
         return { 
             responseText: output.responseText || "I'm not sure what to say to that!", 
             decision: 'NORMAL_RESPONSE' as const,
-            musicPlayback: output.musicPlayback // Keep musicPlayback if it exists and is valid
+            musicPlayback: output.musicPlayback 
         };
     }
 
@@ -129,30 +126,30 @@ const continueConversationFlow = ai.defineFlow(
         return { 
             responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", 
             decision: 'NORMAL_RESPONSE' as const,
-            musicPlayback: output.musicPlayback // Keep musicPlayback
+            musicPlayback: output.musicPlayback 
         };
     }
     
-    if (typeof output.responseText !== 'string') {
-        console.warn(`AI responseText is not a string: ${output.responseText}. Falling back to default.`);
+    if (typeof output.responseText !== 'string' || output.responseText.trim() === '') {
+        console.warn(`AI responseText is not a string or empty: ${output.responseText}. Falling back to default.`);
         output.responseText = "I'm a bit tongue-tied at the moment!";
-        // Don't reset decision if music is playing or selfie context exists
         if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) {
             output.decision = 'NORMAL_RESPONSE' as const;
         }
     }
     
-    // Ensure musicPlayback structure if present and valid
-    if (output.musicPlayback) { // musicPlayback could be undefined now
+    if (output.musicPlayback) { 
         if (typeof output.musicPlayback.song !== 'string' || 
             !output.musicPlayback.status || 
             !Object.values(PlayMusicOutputSchema.shape.status.enum).includes(output.musicPlayback.status as any)) {
-            console.warn('MusicPlayback data from LLM is malformed (missing song, status, or invalid status). Clearing it.', output.musicPlayback);
+            console.warn('MusicPlayback data from LLM is malformed (missing song, status, or invalid status). Clearing musicPlayback field.', output.musicPlayback);
             output.musicPlayback = undefined;
         } else if (output.musicPlayback.status === 'playing_simulation' && typeof output.musicPlayback.youtubeSearchUrl !== 'string') {
-            console.warn('MusicPlayback data from LLM is malformed (missing youtubeSearchUrl for playing_simulation). Clearing it.', output.musicPlayback);
+            console.warn('MusicPlayback data from LLM is malformed (missing youtubeSearchUrl for playing_simulation). Clearing musicPlayback field.', output.musicPlayback);
             output.musicPlayback = undefined;
         }
+        // If status is 'could_not_identify' or 'error_in_tool', youtubeSearchUrl is not strictly required by the tool's schema.
+        // The prompt instructs the LLM what to do in these cases for responseText.
     }
 
     return output;
