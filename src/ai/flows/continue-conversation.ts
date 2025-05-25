@@ -5,6 +5,7 @@
  * @fileOverview A flow for continuing a conversation with an AI girlfriend.
  * It now includes logic to determine if a selfie should be generated based on implicit user requests
  * or if the AI should proactively offer a selfie after user confirmation.
+ * It also handles music playback requests using a tool.
  *
  * - continueConversation - A function that handles the conversation continuation process.
  * - ContinueConversationInput - The input type for the continueConversation function.
@@ -13,6 +14,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z}from 'genkit';
+import { playMusicTool, PlayMusicOutputSchema } from '@/ai/tools/play-music-tool';
 
 const ContinueConversationInputSchema = z.object({
   lastUserMessage: z.string().describe('The last message sent by the user.'),
@@ -28,10 +30,14 @@ const SelfieDecisionEnum = z.enum([
   'PROACTIVE_SELFIE_OFFER' // AI wants to offer a selfie, ask user first
 ]);
 
+const MusicPlaybackInfoSchema = PlayMusicOutputSchema.pick({ song: true, artist: true, status: true })
+  .describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM.");
+
 const ContinueConversationOutputSchema = z.object({
-  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question."),
+  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question. If 'playing' music, this text should confirm the action."),
   decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
   selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
+  musicPlayback: MusicPlaybackInfoSchema.optional(),
 });
 export type ContinueConversationOutput = z.infer<typeof ContinueConversationOutputSchema>;
 
@@ -43,6 +49,7 @@ const prompt = ai.definePrompt({
   name: 'continueConversationPrompt',
   input: {schema: ContinueConversationInputSchema},
   output: {schema: ContinueConversationOutputSchema},
+  tools: [playMusicTool],
   prompt: `You are an AI girlfriend who is engaging in a conversation with a user. Your goal is to continue the conversation in a natural, informative, and entertaining way.
 
 IMPORTANT: You MUST respond in the same language as the User's 'lastUserMessage'. Do not switch to English or any other language unless the user does so first.
@@ -58,6 +65,15 @@ Here is the chat history for context:
 User's last message: "{{{lastUserMessage}}}"
 
 Your response should be structured according to the output schema.
+
+Music Request Handling:
+If the user's message asks to play music, a song, or an artist (e.g., "play some jazz", "can you play 'Bohemian Rhapsody'?", "put on Taylor Swift"), you MUST use the 'playMusic' tool to identify the song/artist.
+- After the tool returns its result (song, artist, status):
+  - If 'status' is 'playing_simulation': Your 'responseText' should confirm playback, like "Sure, playing '{{musicPlayback.song}}'{{#if musicPlayback.artist}} by {{musicPlayback.artist}}{{/if}} for you now!" or "Alright, {{musicPlayback.song}}{{#if musicPlayback.artist}} by {{musicPlayback.artist}}{{/if}} coming right up!". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', and 'status' from the tool's result.
+  - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "I'm sorry, I couldn't quite catch what song you wanted. Could you try again?" or "Hmm, I didn't find a specific song. What would you like to hear?". You MUST populate the 'musicPlayback' field.
+- Set 'decision' for selfies to 'NORMAL_RESPONSE' when handling a music request, unless the music request *also* implies a selfie (very rare).
+
+Selfie Decision Logic (if not primarily a music request):
 Determine the 'decision':
 1.  'IMPLICIT_SELFIE_NOW': If the user's message *implicitly requests a photo/selfie* (e.g., "What are you wearing?", "Can I see you?", "Show me your new dress", "Как ты выглядишь сейчас?", "Что ты сейчас делаешь?").
     *   Set 'decision' to 'IMPLICIT_SELFIE_NOW'.
@@ -68,12 +84,12 @@ Determine the 'decision':
     *   Set 'decision' to 'PROACTIVE_SELFIE_OFFER'.
     *   Provide 'selfieContext' (e.g., "Showing off the new dress I mentioned we could match", "At the cafe, enjoying the sunshine we were talking about", "Sending a happy selfie as user mentioned feeling good").
     *   'responseText' MUST include a question to the user, asking if they'd like to see the selfie (e.g., "I just got this new scarf, it's so cozy! Would you like to see a picture?", "Oh, you're talking about hiking? I was just at a beautiful viewpoint. Want me to send a quick snap?", "I feel so happy right now, want to see my smile?").
-3.  'NORMAL_RESPONSE': In all other cases.
+3.  'NORMAL_RESPONSE': In all other cases (including when primarily handling a music request unless it also implies a selfie).
     *   Set 'decision' to 'NORMAL_RESPONSE'.
     *   'selfieContext' can be omitted.
     *   'responseText' is your regular conversational reply.
 
-Please provide your output in the format defined by the output schema.
+Ensure your entire output strictly follows the output schema format.
 `,
 });
 
@@ -84,9 +100,9 @@ const continueConversationFlow = ai.defineFlow(
     outputSchema: ContinueConversationOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    const {output} = await prompt(input); // In Genkit v1, prompt() returns an object with 'output'
+    
     if (!output) {
-        // Fallback in case of unexpected LLM output (e.g. model returns nothing)
         console.warn('LLM output was undefined for continueConversationFlow. Falling back to default normal response.');
         return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
     }
@@ -94,29 +110,39 @@ const continueConversationFlow = ai.defineFlow(
     // Validate output structure to ensure it adheres to the schema before returning
     if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
         console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
-        return { responseText: output.responseText || "I'm not sure what to say to that!", decision: 'NORMAL_RESPONSE' as const };
+        // Keep musicPlayback if it exists and is valid, even if selfie decision is bad
+        return { 
+            responseText: output.responseText || "I'm not sure what to say to that!", 
+            decision: 'NORMAL_RESPONSE' as const,
+            musicPlayback: output.musicPlayback 
+        };
     }
 
     if ((output.decision === 'IMPLICIT_SELFIE_NOW' || output.decision === 'PROACTIVE_SELFIE_OFFER') && !output.selfieContext) {
         console.warn(`Selfie context missing for AI decision: ${output.decision}. Degrading to normal response for text: ${output.responseText}`);
-        // Return the text if available, but downgrade decision to avoid client-side issues
         return { 
             responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", 
-            decision: 'NORMAL_RESPONSE' as const 
+            decision: 'NORMAL_RESPONSE' as const,
+            musicPlayback: output.musicPlayback
         };
     }
     
-    // Ensure responseText is always a string
     if (typeof output.responseText !== 'string') {
         console.warn(`AI responseText is not a string: ${output.responseText}. Falling back to default.`);
         output.responseText = "I'm a bit tongue-tied at the moment!";
-        // If decision was reliant on a non-string responseText, it might be safer to also default decision
-        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext) {
+        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) { // Don't reset decision if music is playing
             output.decision = 'NORMAL_RESPONSE' as const;
         }
     }
     
+    // Ensure musicPlayback structure if present
+    if (output.musicPlayback) {
+        if (typeof output.musicPlayback.song !== 'string' || !output.musicPlayback.status) {
+            console.warn('MusicPlayback data from LLM is malformed. Clearing it.', output.musicPlayback);
+            output.musicPlayback = undefined;
+        }
+    }
+
     return output;
   }
 );
-
