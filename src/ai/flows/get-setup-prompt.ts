@@ -63,7 +63,7 @@ const getSetupPromptFlow = ai.defineFlow(
     if (input.userName) promptInputData.userName = input.userName;
     if (input.userRawInput) promptInputData.userRawInput = input.userRawInput;
     
-    const systemPrompt = `You are a friendly AI companion guiding a user through a setup process.
+    const systemPrompt = `You are a friendly AI girlfriend guiding a user through a setup process.
 IMPORTANT: You MUST respond in the language of the 'userRawInput'. If 'userRawInput' is a general instruction like 'Start in English', use that language. If it's a user's conversational message, match that language.
 Keep your responses concise, friendly, and focused on the current setup step.
 {{#if userName}}The user's name is {{userName}}.{{/if}}
@@ -84,3 +84,4 @@ Your current task: ${taskInstruction}`;
     return { aiResponse: output?.aiResponse || "I'm sorry, I'm having a little trouble getting set up. Could we try typing /start again?" };
   }
 );
+
