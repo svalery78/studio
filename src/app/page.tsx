@@ -262,9 +262,6 @@ export default function VirtualDatePage() {
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
               setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
           }
-           if (conversationOutput.musicPlayback) {
-            handleMusicPlayback(conversationOutput);
-          }
         }
         setPendingProactiveSelfie(null);
       } else if (clientSetupStep !== 'CHAT_READY' && clientSetupStep !== 'SELECTING_VOICE') {
@@ -363,10 +360,6 @@ export default function VirtualDatePage() {
             setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
         }
 
-        if (conversationOutput.musicPlayback) {
-          handleMusicPlayback(conversationOutput);
-        }
-
       } else if (clientSetupStep !== 'SELECTING_VOICE') {
          console.warn("Message sent but appSettings are null and not in CHAT_READY setup step, or in SELECTING_VOICE step.");
       }
@@ -395,20 +388,6 @@ export default function VirtualDatePage() {
       setIsAiResponding(false);
     }
   };
-
-  const handleMusicPlayback = (conversationOutput: ContinueConversationOutput) => {
-    if (conversationOutput.musicPlayback) {
-      const { status } = conversationOutput.musicPlayback;
-      // The AI's responseText (already added by continueConversation) should contain the link and confirmation.
-      // No additional UI update is strictly needed here if the text is sufficient.
-      if (status === 'playing_simulation') {
-        // console.log("AI confirmed music playback simulation with YouTube link in chat.");
-      } else if (status === 'could_not_identify') {
-        // console.log("AI could not identify music for playback.");
-      }
-    }
-  };
-
 
   const handleVoiceSelected = async (voiceName: string | null) => {
     setIsAiResponding(true);

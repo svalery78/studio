@@ -7,5 +7,6 @@ import '@/ai/flows/continue-conversation.ts';
 import '@/ai/flows/start-conversation.ts';
 import '@/ai/flows/generate-appearance-options.ts';
 import '@/ai/flows/get-setup-prompt.ts'; // Added new flow for conversational setup
-import '@/ai/tools/play-music-tool.ts'; // Added music tool
+// Removed music tool import
+
 
