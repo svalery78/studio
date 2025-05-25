@@ -37,7 +37,7 @@ const ContinueConversationOutputSchema = z.object({
   responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question. If 'playing' music, this text should confirm the action and provide a YouTube link."),
   decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
   selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
-  musicPlayback: MusicPlaybackInfoSchema.optional(),
+  musicPlayback: MusicPlaybackInfoSchema.optional().nullable().describe("Information about music playback if the user requested music. This field should be populated if the 'playMusic' tool was successfully invoked by the LLM, including a YouTube search URL. It can be null or omitted if no music interaction occurred."),
 });
 export type ContinueConversationOutput = z.infer<typeof ContinueConversationOutputSchema>;
 
@@ -71,7 +71,7 @@ If the user's message asks to play music, a song, or an artist (e.g., "play some
 - After the tool returns its result (song, artist, status, youtubeSearchUrl):
   - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' MUST confirm playback and include the YouTube link. For example: "Конечно! Вот ссылка на YouTube для '[SONG_NAME_FROM_TOOL]' от '[ARTIST_FROM_TOOL]': [YOUTUBE_URL_FROM_TOOL] Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '[SONG_NAME_FROM_TOOL]' (исполнитель '[ARTIST_FROM_TOOL]') на YouTube: [YOUTUBE_URL_FROM_TOOL]". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
   - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "Я не совсем поняла, какую песню ты хочешь. Можешь повторить?" or "Хм, не удалось найти. Что бы ты хотел послушать?". You MUST populate the 'musicPlayback' field in your output with the 'song' (e.g., 'Unknown Song'), 'artist' (if any), and 'status: could_not_identify' from the tool's result.
-- Set 'decision' for selfies to 'NORMAL_RESPONSE' when handling a music request, unless the music request *also* implies a selfie (very rare).
+- If no music was requested or processed in this turn, the 'musicPlayback' field should be null or omitted entirely from the output.
 
 Selfie Decision Logic (if not primarily a music request):
 Determine the 'decision':
@@ -107,6 +107,13 @@ const continueConversationFlow = ai.defineFlow(
         return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
     }
 
+    // Handle explicit null from LLM for musicPlayback - convert to undefined if schema expects optional but not nullable
+    // With .nullable() in schema, this specific conversion might not be strictly needed but doesn't hurt
+    if (output.musicPlayback === null) {
+        output.musicPlayback = undefined; 
+    }
+
+
     // Validate output structure to ensure it adheres to the schema before returning
     if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
         console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
@@ -136,7 +143,7 @@ const continueConversationFlow = ai.defineFlow(
     }
     
     // Ensure musicPlayback structure if present and valid
-    if (output.musicPlayback) {
+    if (output.musicPlayback) { // musicPlayback could be undefined now
         if (typeof output.musicPlayback.song !== 'string' || 
             !output.musicPlayback.status || 
             !Object.values(PlayMusicOutputSchema.shape.status.enum).includes(output.musicPlayback.status as any)) {
