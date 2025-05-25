@@ -9,7 +9,7 @@ import { ChatWindow } from '@/components/chat/chat-window';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useToast } from '@/hooks/use-toast';
 import { startConversation } from '@/ai/flows/start-conversation';
-import { continueConversation, type ContinueConversationOutput } from '@/ai/flows/continue-conversation';
+import { continueConversation, type ContinueConversationOutput, type SelfieDecisionType } from '@/ai/flows/continue-conversation';
 import { generateSelfie, type GenerateSelfieInput, type GenerateSelfieOutput } from '@/ai/flows/generate-selfie';
 import { generateAppearanceOptions } from '@/ai/flows/generate-appearance-options';
 import { getSetupPrompt, type GetSetupPromptInput, type GetSetupPromptOutput, type SetupStepType as AiSetupStep } from '@/ai/flows/get-setup-prompt';
@@ -247,14 +247,15 @@ export default function VirtualDatePage() {
             }
         }
 
-        if (isAffirmative) {
+        if (isAffirmative) { 
           addMessage({ sender: 'ai', text: "Great! One moment... ✨" });
           await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings);
         } else {
           addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
+          // If user declines selfie, continue conversation with their message.
           const conversationOutput: ContinueConversationOutput = await continueConversation({
               lastUserMessage: trimmedMessage, 
-              chatHistory: messages.slice(-7, -1) 
+              chatHistory: messages.slice(-21, -1) // Use up to 20 previous messages
                   .map(msg => `${msg.sender === 'user' ? (appSettings?.userName || 'User') : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
                   .join('\\n'),
               personalityTraits: appSettings.personalityTraits,
@@ -263,6 +264,7 @@ export default function VirtualDatePage() {
           if (conversationOutput.responseText) {
               addMessage({ sender: 'ai', text: conversationOutput.responseText });
           }
+          // Check for new selfie decision from this continuation
           if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
               await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
@@ -345,7 +347,7 @@ export default function VirtualDatePage() {
         }
       } else if (appSettings && clientSetupStep === 'CHAT_READY') {
         const chatHistory = messages
-          .slice(-6, -1) 
+          .slice(-21, -1) // Use up to 20 previous messages
           .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
           .join('\\n');
 
@@ -492,7 +494,7 @@ export default function VirtualDatePage() {
 
     try {
       const chatHistoryForSelfie = messages
-        .slice(-5) 
+        .slice(-7) // Use up to the last 7 messages for selfie context
         .map(msg => `${msg.sender === 'user' ? currentAppSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
         .join('\\n');
 
@@ -509,6 +511,7 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
+        // Error already logged in the flow if result.error exists
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
