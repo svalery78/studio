@@ -7,7 +7,8 @@ export interface AppSettings {
   userName: string;
   appearanceDescription: string;
   selectedAvatarDataUri?: string | null;
-  selectedVoiceName?: string | null; // Added for selected voice
+  selectedVoiceName?: string | null;
+  autoPlayAiMessages: boolean; // Added for auto-playback setting
 }
 
 export const DEFAULT_PERSONALITY_TRAITS = "friendly, caring, humorous, supportive, and a bit playful";
@@ -26,10 +27,12 @@ export interface Message {
 }
 
 // Default values for the setup draft
-export const DEFAULT_SETTINGS_DRAFT = {
+export const DEFAULT_SETTINGS_DRAFT: Omit<AppSettings, 'selectedAvatarDataUri'> = {
   userName: DEFAULT_USERNAME,
   personalityTraits: DEFAULT_PERSONALITY_TRAITS,
   topicPreferences: DEFAULT_TOPIC_PREFERENCES,
   appearanceDescription: DEFAULT_APPEARANCE_DESCRIPTION,
   selectedVoiceName: DEFAULT_SELECTED_VOICE_NAME,
+  autoPlayAiMessages: false, // Default to off
 };
+
