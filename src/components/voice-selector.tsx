@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2, Volume2 } from 'lucide-react'; // Removed Play, kept Volume2 for preview
+import { Loader2, Volume2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface VoiceSelectorProps {
@@ -68,7 +68,7 @@ export function VoiceSelector({
   };
 
 
-  if (availableVoices.length === 0 && !isProcessing) { // Added !isProcessing to avoid flicker if voices load fast
+  if (availableVoices.length === 0 && !isProcessing) { 
     return (
       <Card className="w-full max-w-md mx-auto my-auto shadow-xl">
         <CardHeader>
@@ -92,26 +92,29 @@ export function VoiceSelector({
       </CardHeader>
       <CardContent className="space-y-4 max-h-[50vh] overflow-y-auto p-4">
         <RadioGroup value={selectedVoiceNameInternal} onValueChange={setSelectedVoiceNameInternal}>
-          {availableVoices.map((voice) => (
-            <div key={voice.name} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50">
-              <div className="flex items-center space-x-3">
-                <RadioGroupItem value={voice.name} id={voice.name} disabled={isProcessing} />
-                <Label htmlFor={voice.name} className="cursor-pointer">
-                  {voice.name} ({voice.lang}) {voice.default ? "[Default]" : ""}
-                </Label>
+          {availableVoices.map((voice, index) => {
+            const uniqueItemId = `voice-option-${index}`;
+            return (
+              <div key={index} className="flex items-center justify-between p-2 border rounded-md hover:bg-muted/50">
+                <div className="flex items-center space-x-3">
+                  <RadioGroupItem value={voice.name} id={uniqueItemId} disabled={isProcessing} />
+                  <Label htmlFor={uniqueItemId} className="cursor-pointer">
+                    {voice.name} ({voice.lang}) {voice.default ? "[Default]" : ""}
+                  </Label>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handlePreviewVoice(voice)}
+                  disabled={isProcessing || (speechSynthesis.speaking && isPreviewing !== voice.name)}
+                  aria-label={`Preview voice ${voice.name}`}
+                  className="h-8 w-8"
+                >
+                  {isPreviewing === voice.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
+                </Button>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handlePreviewVoice(voice)}
-                disabled={isProcessing || (speechSynthesis.speaking && isPreviewing !== voice.name)}
-                aria-label={`Preview voice ${voice.name}`}
-                className="h-8 w-8"
-              >
-                {isPreviewing === voice.name ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />}
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </RadioGroup>
         {availableVoices.length === 0 && isProcessing && (
              <div className="flex flex-col items-center justify-center py-10">
