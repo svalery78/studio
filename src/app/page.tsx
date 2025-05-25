@@ -217,11 +217,12 @@ export default function VirtualDatePage() {
     try {
       if (pendingProactiveSelfie && appSettings) {
         const userResponseLower = trimmedMessage.toLowerCase();
-        const affirmativeKeywords = ['yes', 'sure', 'ok', 'да', 'ага', 'конечно', 'давай', 'please', 'yep', 'ja', 'si', 'хочу', 'покажи', 'валяй', 'го', 'okey', 'okay', 'fine', 'alright', 'sounds good'];
-        const negativeKeywords = ['no', 'not', 'don\'t', 'нет', 'не надо', 'не хочу', 'nein', 'non', 'откажусь', 'неа', 'nah', 'nope', 'skip'];
+        // More robust keyword detection for affirmative/negative responses
+        const affirmativeKeywords = ['yes', 'sure', 'ok', 'да', 'ага', 'конечно', 'давай', 'please', 'yep', 'ja', 'si', 'хочу', 'покажи', 'валяй', 'го', 'okey', 'okay', 'fine', 'alright', 'sounds good', 'хорошо', 'ладно', 'согласен', 'согласна'];
+        const negativeKeywords = ['no', 'not', 'don\'t', 'нет', 'не надо', 'не хочу', 'nein', 'non', 'откажусь', 'неа', 'nah', 'nope', 'skip', 'неа', 'не буду', 'пропустить'];
         
         let isAffirmative = false;
-        const wordsInResponse = userResponseLower.split(/\\s+/);
+        const wordsInResponse = userResponseLower.split(/[\s,.;!?]+/); // Split by common delimiters
 
         for (const keyword of affirmativeKeywords) {
             if (wordsInResponse.includes(keyword)) {
@@ -229,9 +230,10 @@ export default function VirtualDatePage() {
                 break;
             }
         }
+        // If an affirmative keyword is found, check for overriding negative keywords
         if (isAffirmative) { 
             for (const negKeyword of negativeKeywords) {
-                if (userResponseLower.includes(negKeyword)) { 
+                if (userResponseLower.includes(negKeyword)) { // Check full phrase for negations like "not sure"
                     isAffirmative = false;
                     break;
                 }
@@ -284,7 +286,7 @@ export default function VirtualDatePage() {
           nextAiFlowStep = AI_SETUP_STEPS.ASK_VOICE_PREFERENCE;
           nextClientStep = 'AWAITING_USER_VOICE_DECISION';
         } else if (clientSetupStep === 'AWAITING_USER_VOICE_DECISION') {
-            const affirmative = ['yes', 'yep', 'sure', 'ok', 'да', 'хочу', 'customize', 'choose', 'давай'].some(kw => trimmedMessage.toLowerCase().includes(kw));
+            const affirmative = ['yes', 'yep', 'sure', 'ok', 'да', 'хочу', 'customize', 'choose', 'давай', 'выбрать', 'настроить'].some(kw => trimmedMessage.toLowerCase().includes(kw));
             if (affirmative) {
                 setClientSetupStep('SELECTING_VOICE');
                 setSetupVisualPhase('voice_selection');
@@ -396,14 +398,13 @@ export default function VirtualDatePage() {
 
   const handleMusicPlayback = (conversationOutput: ContinueConversationOutput) => {
     if (conversationOutput.musicPlayback) {
-      const { song, artist, status, youtubeSearchUrl } = conversationOutput.musicPlayback;
-      // The AI's responseText (already added by continueConversation) should contain the link.
-      // No additional toast is needed as the link is in the chat.
-      if (status === 'playing_simulation' && youtubeSearchUrl) {
-        // Message already sent by continueConversation
-        // Optionally, could log or do something else here if needed
+      const { status } = conversationOutput.musicPlayback;
+      // The AI's responseText (already added by continueConversation) should contain the link and confirmation.
+      // No additional UI update is strictly needed here if the text is sufficient.
+      if (status === 'playing_simulation') {
+        // console.log("AI confirmed music playback simulation with YouTube link in chat.");
       } else if (status === 'could_not_identify') {
-        // Message already sent by continueConversation
+        // console.log("AI could not identify music for playback.");
       }
     }
   };

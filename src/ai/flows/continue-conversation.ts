@@ -69,8 +69,8 @@ Your response should be structured according to the output schema.
 Music Request Handling:
 If the user's message asks to play music, a song, or an artist (e.g., "play some jazz", "can you play 'Bohemian Rhapsody'?", "put on Taylor Swift"), you MUST use the 'playMusic' tool to identify the song/artist and get a YouTube search URL.
 - After the tool returns its result (song, artist, status, youtubeSearchUrl):
-  - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' should confirm playback and include the YouTube link, like "Конечно! Вот ссылка на YouTube для '{{musicPlayback.song}}'{{#if musicPlayback.artist}} от {{musicPlayback.artist}}{{/if}}: {{musicPlayback.youtubeSearchUrl}} Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '{{musicPlayback.song}}'{{#if musicPlayback.artist}} (исполнитель {{musicPlayback.artist}}){{/if}} на YouTube: {{musicPlayback.youtubeSearchUrl}}". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
-  - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "Я не совсем поняла, какую песню ты хочешь. Можешь повторить?" or "Хм, не удалось найти. Что бы ты хотел послушать?". You MUST populate the 'musicPlayback' field.
+  - If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is provided: Your 'responseText' MUST confirm playback and include the YouTube link. For example: "Конечно! Вот ссылка на YouTube для '[SONG_NAME_FROM_TOOL]' от '[ARTIST_FROM_TOOL]': [YOUTUBE_URL_FROM_TOOL] Ты можешь послушать ее там." or "Нашла! Вот ссылка, чтобы послушать '[SONG_NAME_FROM_TOOL]' (исполнитель '[ARTIST_FROM_TOOL]') на YouTube: [YOUTUBE_URL_FROM_TOOL]". You MUST populate the 'musicPlayback' field in your output with the 'song', 'artist', 'status', and 'youtubeSearchUrl' from the tool's result.
+  - If 'status' is 'could_not_identify': Your 'responseText' should inform the user, like "Я не совсем поняла, какую песню ты хочешь. Можешь повторить?" or "Хм, не удалось найти. Что бы ты хотел послушать?". You MUST populate the 'musicPlayback' field in your output with the 'song' (e.g., 'Unknown Song'), 'artist' (if any), and 'status: could_not_identify' from the tool's result.
 - Set 'decision' for selfies to 'NORMAL_RESPONSE' when handling a music request, unless the music request *also* implies a selfie (very rare).
 
 Selfie Decision Logic (if not primarily a music request):
@@ -113,7 +113,7 @@ const continueConversationFlow = ai.defineFlow(
         return { 
             responseText: output.responseText || "I'm not sure what to say to that!", 
             decision: 'NORMAL_RESPONSE' as const,
-            musicPlayback: output.musicPlayback 
+            musicPlayback: output.musicPlayback // Keep musicPlayback if it exists and is valid
         };
     }
 
@@ -122,7 +122,7 @@ const continueConversationFlow = ai.defineFlow(
         return { 
             responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", 
             decision: 'NORMAL_RESPONSE' as const,
-            musicPlayback: output.musicPlayback
+            musicPlayback: output.musicPlayback // Keep musicPlayback
         };
     }
     
@@ -135,10 +135,12 @@ const continueConversationFlow = ai.defineFlow(
         }
     }
     
-    // Ensure musicPlayback structure if present
+    // Ensure musicPlayback structure if present and valid
     if (output.musicPlayback) {
-        if (typeof output.musicPlayback.song !== 'string' || !output.musicPlayback.status) {
-            console.warn('MusicPlayback data from LLM is malformed (missing song or status). Clearing it.', output.musicPlayback);
+        if (typeof output.musicPlayback.song !== 'string' || 
+            !output.musicPlayback.status || 
+            !Object.values(PlayMusicOutputSchema.shape.status.enum).includes(output.musicPlayback.status as any)) {
+            console.warn('MusicPlayback data from LLM is malformed (missing song, status, or invalid status). Clearing it.', output.musicPlayback);
             output.musicPlayback = undefined;
         } else if (output.musicPlayback.status === 'playing_simulation' && typeof output.musicPlayback.youtubeSearchUrl !== 'string') {
             console.warn('MusicPlayback data from LLM is malformed (missing youtubeSearchUrl for playing_simulation). Clearing it.', output.musicPlayback);
@@ -149,3 +151,4 @@ const continueConversationFlow = ai.defineFlow(
     return output;
   }
 );
+
