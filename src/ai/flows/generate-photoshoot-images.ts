@@ -1,10 +1,9 @@
 
 'use server';
 /**
- * @fileOverview Generates 5 distinct photorealistic images for a photoshoot session.
- * The AI analyzes a base image of the AI girlfriend (for appearance, clothing, environment)
- * and uses an optional user-provided description to modify or enhance the scene.
- * The goal is to create 5 variations of the scene from the base image.
+ * @fileOverview Generates 5 distinct photorealistic images for a photoshoot session
+ * based on a user's textual description. A base image of the AI girlfriend is used
+ * to maintain character appearance consistency across the generated images.
  *
  * - generatePhotoshootImages - A function that handles the photoshoot generation process.
  * - GeneratePhotoshootImagesInput - The input type for the function.
@@ -17,11 +16,10 @@ import {z}from 'genkit';
 const GeneratePhotoshootImagesInputSchema = z.object({
   userDescription: z
     .string()
-    .optional()
-    .describe('An optional textual description from the user to modify or add context to the photoshoot scene derived from the base image.'),
+    .describe('A textual description from the user defining the theme or scene for the photoshoot. This will be used to generate 5 distinct image prompts.'),
   baseImageDataUri: z
     .string()
-    .describe("A base image data URI of the AI girlfriend. This image is crucial as it defines the primary appearance, clothing, and environment for the photoshoot. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
+    .describe("A base image data URI of the AI girlfriend. This image is crucial for maintaining appearance consistency of the person across all generated photoshoot images. Expected format: 'data:<mimetype>;base64,<encoded_data>'."),
 });
 export type GeneratePhotoshootImagesInput = z.infer<typeof GeneratePhotoshootImagesInputSchema>;
 
@@ -30,7 +28,7 @@ const GeneratePhotoshootImagesOutputSchema = z.object({
     .array(z.string())
     .min(1) // Expect at least one image, ideally 5
     .describe(
-      "An array of generated photoshoot images as data URIs. Each string should be in the format: 'data:<mimetype>;base64,<encoded_data>'."
+      "An array of 5 generated photoshoot images as data URIs. Each string should be in the format: 'data:<mimetype>;base64,<encoded_data>'."
     ),
   error: z.string().optional().describe("An error message if the photoshoot generation failed significantly.")
 });
@@ -42,39 +40,35 @@ export async function generatePhotoshootImages(
   return generatePhotoshootImagesFlow(input);
 }
 
-// This prompt now focuses *only* on generating descriptions of VARIATIONS.
-// The main flow will handle the instruction to match the base image's outfit/environment.
-const photoshootVariationPromptsGenerator = ai.definePrompt({
-  name: 'generatePhotoshootVariationPrompts',
-  input: { schema: GeneratePhotoshootImagesInputSchema.pick({ userDescription: true }) }, // Base image is implicitly handled by the main flow
+// Helper prompt to generate 5 varied, detailed scene prompts for the image model,
+// based on a single user description.
+const photoshootScenePromptsGenerator = ai.definePrompt({
+  name: 'generatePhotoshootScenePrompts',
+  input: { schema: GeneratePhotoshootImagesInputSchema.pick({ userDescription: true }) },
   output: { schema: z.object({
-    variationDescriptions: z.array(z.string()).length(5).describe("Five distinct, concise descriptions of *variations* for a photoshoot. Each description should detail a new pose, camera angle, facial expression, or minor action. Assume the person, their outfit, and the core environment REMAIN THE SAME as in a base image (which you don't need to describe). If userDescription is provided, try to incorporate it naturally into the variations.")
+    scenePrompts: z.array(z.string()).length(5).describe("Five distinct, detailed image generation prompts. Each prompt should describe a complete photorealistic scene based on the user's input description, suitable for generating a unique image. The person in these scenes should be the AI girlfriend whose appearance is defined by a separate base image.")
   })},
-  prompt: `You are an expert photoshoot director.
-Your task is to generate 5 distinct and concise descriptions of *variations* for a photoshoot.
-Assume the AI girlfriend's appearance, her **exact outfit**, and the **core environment/location** REMAIN THE SAME as in a base image that will be provided separately to the image model.
-Your descriptions should focus ONLY on the *changes* or *specifics* for each of the 5 shots.
+  prompt: `Based on the following user description for a photoshoot, generate 5 distinct and detailed text prompts. Each prompt will be used to generate one photorealistic image of an AI girlfriend (whose appearance will be based on a separate reference image). The prompts should describe varied scenes, poses, or activities related to the user's core theme.
 
-Describe variations in:
-- Camera angle (e.g., "close-up shot focusing on her face", "medium shot from a slightly lower angle", "shot from above showing more of the background").
-- Pose (e.g., "looking over her shoulder towards the camera", "hands on hips, confident stance", "leaning against a wall thoughtfully", "playfully adjusting her hair").
-- Facial expression (e.g., "a warm, gentle smile", "a playful wink", "a thoughtful, serene expression", "laughing heartily").
-- Minor, contextually relevant actions or added details.
+User's Photoshoot Description: "{{{userDescription}}}"
 
-{{#if userDescription}}
-An optional user request for the photoshoot is: "{{{userDescription}}}"
-Try to incorporate this user request naturally into one or more of your 5 variation descriptions if it's compatible with an implicit base scene. For example, if userDescription is 'holding a book', a variation could be 'sitting and reading the book, looking content'. If userDescription is 'happy mood', ensure expressions reflect that.
-{{else}}
-No specific user request provided. Focus on diverse poses, angles, and expressions.
-{{/if}}
+For each of the 5 prompts, imagine a complete scene. Describe:
+- The setting/location.
+- The AI girlfriend's activity or pose within that setting.
+- Her mood or expression.
+- Any relevant objects or minor characters.
+- The desired lighting or atmosphere.
 
-**IMPORTANT: Do NOT describe the person's general appearance, their outfit, or the main environment in your output. Only describe the *variation* for each shot.**
+Ensure each of the 5 prompts is unique and will lead to a visually distinct image, while still being thematically connected to the user's original description. Each prompt should be a self-contained instruction for an image generation model.
 
-Example of one good variation description: "Smiling warmly towards the camera, medium shot."
-Another example (if userDescription was 'eating an ice cream cone'): "Happily eating an ice cream cone, close-up on her face."
-Another example: "Looking off to the side thoughtfully, with a gentle breeze blowing her hair. Close-up."
+Example output for userDescription "relaxing at a cozy cabin":
+1. "Photorealistic image: AI girlfriend reading a book by a warm fireplace inside a rustic log cabin, soft evening light, content smile."
+2. "Photorealistic image: AI girlfriend sipping hot cocoa on the porch of a snowy cabin, looking out at a winter forest, bundled in a cozy sweater."
+3. "Photorealistic image: AI girlfriend laughing as she plays a board game with an unseen partner in a brightly lit cabin living room."
+4. "Photorealistic image: AI girlfriend stretching by a window in a cabin bedroom, morning light streaming in, peaceful expression."
+5. "Photorealistic image: AI girlfriend writing in a journal at a wooden desk in a cabin, surrounded by books, thoughtful mood."
 
-Output 5 distinct variation descriptions. Each should be a concise phrase.
+Generate 5 such distinct scene prompts.
 `,
 });
 
@@ -85,27 +79,27 @@ const generatePhotoshootImagesFlow = ai.defineFlow(
     outputSchema: GeneratePhotoshootImagesOutputSchema,
   },
   async (input: GeneratePhotoshootImagesInput): Promise<GeneratePhotoshootImagesOutput> => {
-    let generatedVariationDescriptions: string[];
+    let generatedScenePrompts: string[];
 
     try {
-      const { output: variationsOutput } = await photoshootVariationPromptsGenerator({
+      const { output: scenePromptsOutput } = await photoshootScenePromptsGenerator({
         userDescription: input.userDescription,
-        // baseImageDataUri is not directly passed to this prompt, as it focuses on variations
       });
-      if (!variationsOutput || variationsOutput.variationDescriptions.length !== 5) {
-        console.error('Failed to generate 5 distinct variation descriptions for photoshoot.');
+      if (!scenePromptsOutput || scenePromptsOutput.scenePrompts.length !== 5) {
+        console.error('Failed to generate 5 distinct scene prompts for photoshoot.');
         return { photoshootImages: [], error: 'Could not prepare varied scenes for the photoshoot.' };
       }
-      generatedVariationDescriptions = variationsOutput.variationDescriptions;
+      generatedScenePrompts = scenePromptsOutput.scenePrompts;
     } catch (e: any) {
-      console.error('Error generating photoshoot variation descriptions:', e.message);
+      console.error('Error generating photoshoot scene prompts:', e.message);
       return { photoshootImages: [], error: `Error preparing photoshoot scenes: ${e.message}` };
     }
 
     const photoshootImages: string[] = [];
-    for (const variationDesc of generatedVariationDescriptions) {
+    for (const scenePrompt of generatedScenePrompts) {
       try {
-        const imagePromptText = `Photorealistic image. The person's appearance (face, hair, body type), THEIR EXACT OUTFIT, AND THE EXACT ENVIRONMENT/LOCATION must strictly match those in the provided base media. For this shot: ${variationDesc}. Ensure high quality, detailed, and realistic lighting.`;
+        // The scenePrompt already contains "Photorealistic image: ..."
+        const imagePromptText = `Ensure the person in the image (face, hair, body type) strictly matches the person from the provided base media. Scene: ${scenePrompt}. Ensure high quality, detailed, and realistic lighting.`;
         
         const imagePromptParts: any[] = [
             { media: { url: input.baseImageDataUri } },
@@ -123,15 +117,16 @@ const generatePhotoshootImagesFlow = ai.defineFlow(
         if (media && media.url) {
           photoshootImages.push(media.url);
         } else {
-          console.warn('One image in photoshoot failed to generate or did not return a URL. Variation: ', variationDesc);
+          console.warn('One image in photoshoot failed to generate or did not return a URL. Scene: ', scenePrompt);
         }
       } catch (e: any) {
-        console.warn(`Exception during one image generation in photoshoot for variation "${variationDesc}":`, e.message);
+        console.warn(`Exception during one image generation in photoshoot for scene "${scenePrompt}":`, e.message);
+        // Optionally, add a placeholder or skip this image
       }
     }
 
     if (photoshootImages.length === 0) {
-        return { photoshootImages: [], error: "Failed to generate any images for the photoshoot. This might be due to issues with the base image or restrictive content filters."}
+        return { photoshootImages: [], error: "Failed to generate any images for the photoshoot. This might be due to issues with the base image, the user description, or restrictive content filters."}
     }
 
     return { photoshootImages };
