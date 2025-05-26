@@ -67,6 +67,7 @@ export default function VirtualDatePage() {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Attempt to get browser language for the very first AI message
     if (typeof window !== 'undefined' && navigator.language) {
       setInitialLanguageHint("User's preferred language seems to be: " + navigator.language.split('-')[0]);
     }
@@ -568,7 +569,7 @@ export default function VirtualDatePage() {
           addMessage({ sender: 'ai', imageUrl: imageUrl });
           await new Promise(resolve => setTimeout(resolve, 500)); 
         }
-        addMessage({ sender: 'ai', text: "Photoshoot complete! Hope you like them! 😊" });
+        addMessage({ sender: 'ai', text: "Фото прислала" });
       } else {
         addMessage({ sender: 'ai', text: `I tried to do a photoshoot themed "${description}", but couldn't get any good shots right now. Maybe another time? ${result.error ? `(${result.error})` : ''}`});
       }
