@@ -9,15 +9,16 @@ import { ChatWindow } from '@/components/chat/chat-window';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { useToast } from '@/hooks/use-toast';
 import { startConversation } from '@/ai/flows/start-conversation';
-import { continueConversation, type ContinueConversationOutput, type SelfieDecisionType } from '@/ai/flows/continue-conversation';
+import { continueConversation, type ContinueConversationOutput } from '@/ai/flows/continue-conversation';
 import { generateSelfie, type GenerateSelfieInput, type GenerateSelfieOutput } from '@/ai/flows/generate-selfie';
 import { generateAppearanceOptions } from '@/ai/flows/generate-appearance-options';
 import { getSetupPrompt, type GetSetupPromptInput, type GetSetupPromptOutput, type SetupStepType as AiSetupStep } from '@/ai/flows/get-setup-prompt';
+import { generatePhotoshootImages, type GeneratePhotoshootImagesInput, type GeneratePhotoshootImagesOutput } from '@/ai/flows/generate-photoshoot-images';
 import type { AppSettings, Message } from '@/lib/constants';
 import { LOCAL_STORAGE_SETTINGS_KEY, DEFAULT_SETTINGS_DRAFT } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle } from 'lucide-react';
+import { Loader2, CheckCircle, Camera } from 'lucide-react';
 import { VoiceSelector } from '@/components/voice-selector';
 
 type ClientSetupStep = 
@@ -51,6 +52,8 @@ export default function VirtualDatePage() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAiResponding, setIsAiResponding] = useState(false);
   const [isGeneratingSelfie, setIsGeneratingSelfie] = useState(false);
+  const [isGeneratingPhotoshoot, setIsGeneratingPhotoshoot] = useState(false);
+
 
   const [clientSetupStep, setClientSetupStep] = useState<ClientSetupStep>('INITIAL_LOAD');
   const [setupVisualPhase, setSetupVisualPhase] = useState<SetupVisualPhase>('conversational_setup');
@@ -64,7 +67,6 @@ export default function VirtualDatePage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Attempt to get browser language for the very first AI message
     if (typeof window !== 'undefined' && navigator.language) {
       setInitialLanguageHint("User's preferred language seems to be: " + navigator.language.split('-')[0]);
     }
@@ -97,6 +99,8 @@ export default function VirtualDatePage() {
     const loadStateAndInitiateSetup = async () => {
       setIsInitializing(true);
       setIsAiResponding(false);
+      setIsGeneratingSelfie(false);
+      setIsGeneratingPhotoshoot(false);
       const storedSettingsItem = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
 
       if (storedSettingsItem && storedSettingsItem !== "null") {
@@ -104,7 +108,7 @@ export default function VirtualDatePage() {
             const parsedSettings = JSON.parse(storedSettingsItem) as AppSettings;
             if (parsedSettings.selectedAvatarDataUri && parsedSettings.userName && parsedSettings.personalityTraits && parsedSettings.topicPreferences && parsedSettings.appearanceDescription) {
               setAppSettings(parsedSettings);
-              setSettingsDraft(parsedSettings); // Initialize draft with full settings
+              setSettingsDraft(parsedSettings); 
               setClientSetupStep('CHAT_READY');
               setSetupVisualPhase('chat_ready');
               if (messages.length === 0) { 
@@ -177,7 +181,7 @@ export default function VirtualDatePage() {
   }, [clientSetupStep, isInitializing, initialLanguageHint, messages.length]);
 
   const addMessage = useCallback((message: Omit<Message, 'id' | 'timestamp'>) => {
-    setMessages(prev => [...prev, { ...message, id: Date.now().toString(), timestamp: Date.now() }]);
+    setMessages(prev => [...prev, { ...message, id: Date.now().toString() + Math.random().toString(36).substring(2,7), timestamp: Date.now() }]);
   }, []);
   
   const handleSendMessage = async (messageText: string) => {
@@ -193,9 +197,37 @@ export default function VirtualDatePage() {
       setSetupVisualPhase('conversational_setup');
       setIsAiResponding(false); 
       setIsGeneratingSelfie(false); 
+      setIsGeneratingPhotoshoot(false);
       window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY); 
       toast({ title: "New Chat Started", description: "Let's set up your AI companion!" });
+      // Trigger AI greeting if messages are empty after reset
+       if (messages.length === 0 && !isInitializing) { 
+        setIsAiResponding(true);
+        try {
+            const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
+            const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
+            addMessage({ sender: 'ai', text: response.aiResponse });
+            setClientSetupStep('AWAITING_USER_NAME');
+        } catch (error) {
+            console.error("Error getting initial setup prompt after /start:", error);
+        } finally {
+            setIsAiResponding(false);
+        }
+      }
       return;
+    } else if (trimmedMessage.toLowerCase().startsWith('/photo ')) {
+        if (!appSettings || !appSettings.selectedAvatarDataUri) {
+            toast({ title: "Photoshoot Error", description: "Please complete the setup first to use the photoshoot feature.", variant: "destructive" });
+            return;
+        }
+        const photoshootDescription = trimmedMessage.substring(7).trim();
+        if (!photoshootDescription) {
+            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command. For example: `/photo relaxing by the pool`" });
+            return;
+        }
+        addMessage({ sender: 'user', text: trimmedMessage });
+        await handleGeneratePhotoshootRequest(photoshootDescription, appSettings);
+        return;
     } else if (trimmedMessage.toLowerCase() === '/voice') {
       if (!settingsDraft.userName && !appSettings?.userName) { 
         toast({ title: "Voice Change", description: "Please complete the initial setup first.", variant: "destructive" });
@@ -252,10 +284,9 @@ export default function VirtualDatePage() {
           await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings);
         } else {
           addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
-          // If user declines selfie, continue conversation with their message.
           const conversationOutput: ContinueConversationOutput = await continueConversation({
               lastUserMessage: trimmedMessage, 
-              chatHistory: messages.slice(-21, -1) // Use up to 20 previous messages
+              chatHistory: messages.slice(-21, -1) 
                   .map(msg => `${msg.sender === 'user' ? (appSettings?.userName || 'User') : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
                   .join('\\n'),
               personalityTraits: appSettings.personalityTraits,
@@ -264,7 +295,6 @@ export default function VirtualDatePage() {
           if (conversationOutput.responseText) {
               addMessage({ sender: 'ai', text: conversationOutput.responseText });
           }
-          // Check for new selfie decision from this continuation
           if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
               await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
@@ -347,7 +377,7 @@ export default function VirtualDatePage() {
         }
       } else if (appSettings && clientSetupStep === 'CHAT_READY') {
         const chatHistory = messages
-          .slice(-21, -1) // Use up to 20 previous messages
+          .slice(-21, -1) 
           .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
           .join('\\n');
 
@@ -430,7 +460,7 @@ export default function VirtualDatePage() {
   };
 
   const handleAvatarSelection = useCallback(async (selectedImageUri: string) => {
-    if (isAiResponding || isGeneratingSelfie) return; 
+    if (isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot) return; 
 
     const currentDraft = settingsDraft; 
 
@@ -485,16 +515,16 @@ export default function VirtualDatePage() {
       setIsAiResponding(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, initialLanguageHint, isInitializing ]);
+  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing ]);
   
   const handleGenerateSelfieRequest = async (userSelfieRequestText: string, currentAppSettings: AppSettings) => {
-    if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding) return;
+    if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding || isGeneratingPhotoshoot) return;
 
     setIsGeneratingSelfie(true);    
 
     try {
       const chatHistoryForSelfie = messages
-        .slice(-7) // Use up to the last 7 messages for selfie context
+        .slice(-7) 
         .map(msg => `${msg.sender === 'user' ? currentAppSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
         .join('\\n');
 
@@ -511,7 +541,6 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        // Error already logged in the flow if result.error exists
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -519,6 +548,37 @@ export default function VirtualDatePage() {
       addMessage({ sender: 'ai', text: "Ой, что-то совсем пошло не так с моей камерой! Попробуем в другой раз, милый? 😥" });
     } finally {
       setIsGeneratingSelfie(false);
+    }
+  };
+
+  const handleGeneratePhotoshootRequest = async (description: string, currentAppSettings: AppSettings) => {
+    if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingPhotoshoot || isAiResponding || isGeneratingSelfie) return;
+
+    setIsGeneratingPhotoshoot(true);
+    addMessage({ sender: 'ai', text: `Okay, starting your photoshoot themed: "${description}"! This might take a little while... 📸` });
+
+    try {
+      const photoshootInput: GeneratePhotoshootImagesInput = {
+        userDescription: description,
+        baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
+      };
+      const result: GeneratePhotoshootImagesOutput = await generatePhotoshootImages(photoshootInput);
+
+      if (result.photoshootImages && result.photoshootImages.length > 0) {
+        for (const imageUrl of result.photoshootImages) {
+          addMessage({ sender: 'ai', imageUrl: imageUrl });
+          // Add a small delay between adding images to the chat for better UX
+          await new Promise(resolve => setTimeout(resolve, 500)); 
+        }
+        addMessage({ sender: 'ai', text: "Photoshoot complete! Hope you like them! 😊" });
+      } else {
+        addMessage({ sender: 'ai', text: `I tried to do a photoshoot themed "${description}", but couldn't get any good shots right now. Maybe another time? ${result.error ? `(${result.error})` : ''}`});
+      }
+    } catch (error) {
+      console.error("Unexpected error in handleGeneratePhotoshootRequest:", error);
+      addMessage({ sender: 'ai', text: "Oh dear, something went wrong with the photoshoot! Let's try another time. 😥" });
+    } finally {
+      setIsGeneratingPhotoshoot(false);
     }
   };
   
@@ -548,16 +608,17 @@ export default function VirtualDatePage() {
               messages={messages}
               onSendMessage={handleSendMessage}
               onSelfieRequest={(userText) => {
-                  if (clientSetupStep === 'CHAT_READY' && appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie) {
+                  if (clientSetupStep === 'CHAT_READY' && appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie && !isGeneratingPhotoshoot) {
                      handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
                   }
                 }
               }
-              isSendingMessage={isAiResponding || isGeneratingSelfie} 
+              isSendingMessage={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot} 
               appSettings={appSettings} 
               chatInputDisabled={
                 isAiResponding || 
                 isGeneratingSelfie || 
+                isGeneratingPhotoshoot ||
                 clientSetupStep === 'SELECTING_VOICE' || 
                 clientSetupStep === 'AWAITING_AI_CONFIRMATION' || 
                 clientSetupStep === 'GENERATING_APPEARANCE' || 
@@ -569,7 +630,7 @@ export default function VirtualDatePage() {
                  clientSetupStep !== 'AWAITING_USER_APPEARANCE' &&
                  clientSetupStep !== 'CHAT_READY')
               }
-              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || clientSetupStep !== 'CHAT_READY' || !!pendingProactiveSelfie}
+              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot || clientSetupStep !== 'CHAT_READY' || !!pendingProactiveSelfie}
             />
           </div>
         )}
@@ -606,9 +667,9 @@ export default function VirtualDatePage() {
             <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {appearanceOptions.map((src, index) => (
                 <div key={index} className="relative aspect-[3/4] sm:aspect-square rounded-lg overflow-hidden shadow-md cursor-pointer group ring-2 ring-transparent hover:ring-accent focus-visible:ring-accent transition-all"
-                  onClick={() => !(isAiResponding || isGeneratingSelfie) && handleAvatarSelection(src)} 
-                  onKeyDown={(e) => e.key === 'Enter' && !(isAiResponding || isGeneratingSelfie) && handleAvatarSelection(src)}
-                  tabIndex={(isAiResponding || isGeneratingSelfie) ? -1 : 0}
+                  onClick={() => !(isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot) && handleAvatarSelection(src)} 
+                  onKeyDown={(e) => e.key === 'Enter' && !(isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot) && handleAvatarSelection(src)}
+                  tabIndex={(isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot) ? -1 : 0}
                   role="button"
                   aria-label={`Select appearance option ${index + 1}`}
                 >
@@ -628,7 +689,7 @@ export default function VirtualDatePage() {
               ))}
             </CardContent>
              <CardFooter className="pt-2 pb-4 text-center flex-col items-center">
-              <p className="text-sm text-muted-foreground">Click an image to select it. {(isAiResponding || isGeneratingSelfie) && "(Processing...)"}</p>
+              <p className="text-sm text-muted-foreground">Click an image to select it. {(isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot) && "(Processing...)"}</p>
             </CardFooter>
           </Card>
         )}
@@ -638,14 +699,14 @@ export default function VirtualDatePage() {
               messages={messages}
               onSendMessage={handleSendMessage}
               onSelfieRequest={(userText) => {
-                if (appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie) {
+                if (appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie && !isGeneratingPhotoshoot) {
                   handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
                 }
               }}
-              isSendingMessage={isAiResponding || isGeneratingSelfie}
+              isSendingMessage={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot}
               appSettings={appSettings}
-              chatInputDisabled={isAiResponding || isGeneratingSelfie || !!pendingProactiveSelfie}
-              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || !!pendingProactiveSelfie}
+              chatInputDisabled={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot || !!pendingProactiveSelfie}
+              selfieButtonDisabled={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot || !!pendingProactiveSelfie}
             />
           </div>
         )}
