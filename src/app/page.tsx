@@ -53,6 +53,7 @@ export default function VirtualDatePage() {
   const [isAiResponding, setIsAiResponding] = useState(false);
   const [isGeneratingSelfie, setIsGeneratingSelfie] = useState(false);
   const [isGeneratingPhotoshoot, setIsGeneratingPhotoshoot] = useState(false);
+  const [preAttachedImage, setPreAttachedImage] = useState<string | null>(null); // For image "attached" via a hypothetical button
 
 
   const [clientSetupStep, setClientSetupStep] = useState<ClientSetupStep>('INITIAL_LOAD');
@@ -67,6 +68,7 @@ export default function VirtualDatePage() {
   const { toast } = useToast();
 
   useEffect(() => {
+    // Attempt to get browser language for the very first AI message
     if (typeof window !== 'undefined' && navigator.language) {
       setInitialLanguageHint("User's preferred language seems to be: " + navigator.language.split('-')[0]);
     }
@@ -101,6 +103,7 @@ export default function VirtualDatePage() {
       setIsAiResponding(false);
       setIsGeneratingSelfie(false);
       setIsGeneratingPhotoshoot(false);
+      setPreAttachedImage(null);
       const storedSettingsItem = window.localStorage.getItem(LOCAL_STORAGE_SETTINGS_KEY);
 
       if (storedSettingsItem && storedSettingsItem !== "null") {
@@ -193,6 +196,7 @@ export default function VirtualDatePage() {
       setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
       setAppearanceOptions([]);
       setPendingProactiveSelfie(null);
+      setPreAttachedImage(null);
       setClientSetupStep('AWAITING_AI_GREETING'); 
       setSetupVisualPhase('conversational_setup');
       setIsAiResponding(false); 
@@ -220,30 +224,40 @@ export default function VirtualDatePage() {
             return;
         }
         
-        const dataUriRegex = /(data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+))/;
-        const match = trimmedMessage.match(dataUriRegex);
-        let baseUriToUse = appSettings.selectedAvatarDataUri;
+        let baseUriToUse: string | undefined | null = null;
         let photoshootDescription = trimmedMessage.substring(7).trim(); 
-        let userProvidedImage = false;
+        let usedPreAttached = false;
 
-        if (match && match[0]) {
-          baseUriToUse = match[0];
-          photoshootDescription = photoshootDescription.replace(match[0], '').trim();
-          userProvidedImage = true;
+        if (preAttachedImage) {
+            baseUriToUse = preAttachedImage;
+            usedPreAttached = true;
+            setPreAttachedImage(null); // Use once
+        } else {
+            const dataUriRegex = /(data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+))/;
+            const match = photoshootDescription.match(dataUriRegex); // Check description for data URI
+
+            if (match && match[0]) {
+                baseUriToUse = match[0];
+                photoshootDescription = photoshootDescription.replace(match[0], '').trim();
+            } else {
+                baseUriToUse = appSettings.selectedAvatarDataUri;
+            }
         }
 
         if (!baseUriToUse) {
-            addMessage({ sender: 'ai', text: "I need a base image for the photoshoot. Please complete your avatar setup or include an image data URI in your command."});
+            addMessage({ sender: 'ai', text: "I need a base image for the photoshoot. Please complete your avatar setup, include an image data URI in your command, or attach an image before using /photo."});
             return;
         }
         if (!photoshootDescription) {
-            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command and any image. For example: `/photo relaxing by the pool`" });
+            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command. For example: `/photo relaxing by the pool`" });
             return;
         }
 
         addMessage({ sender: 'user', text: trimmedMessage });
-        if (userProvidedImage) {
-            addMessage({ sender: 'ai', text: "Understood! Using the image you provided as the base for this photoshoot." });
+        if (usedPreAttached) {
+            addMessage({ sender: 'ai', text: "Understood! Using the image you attached for this photoshoot." });
+        } else if (baseUriToUse !== appSettings.selectedAvatarDataUri) {
+            addMessage({ sender: 'ai', text: "Understood! Using the image you provided in the command for this photoshoot." });
         }
         await handleGeneratePhotoshootRequest(photoshootDescription, baseUriToUse, appSettings);
         return;
@@ -422,15 +436,22 @@ export default function VirtualDatePage() {
       }
     } catch (error: any) {
       console.error("Error during setup or conversation step:", error);
-      addMessage({sender: 'ai', text: "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?"});
+      let friendlyErrorText = "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?";
+      if (error.message && error.message.includes('503') || error.message && error.message.toLowerCase().includes('overloaded')) {
+        friendlyErrorText = "Уф, мои лампочки перегрелись! Мозг искусственного интеллекта сейчас очень занят. Можем попробовать еще раз через минутку? 💖";
+      } else if (error.message && error.message.toLowerCase().includes('api key not valid')) {
+         friendlyErrorText = "Ох, кажется, что-то не так с моим подключением к AI-сервисам. Моей команде поддержки нужно это проверить. Давай пока поговорим о чем-нибудь простом!";
+      }
+      addMessage({sender: 'ai', text: friendlyErrorText });
+
       if (clientSetupStep !== 'CHAT_READY') {
         setClientSetupStep('AWAITING_AI_GREETING');
         setMessages([]); 
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
-        setIsAiResponding(false); // Ensure AI is not stuck in responding state
-        if (!isInitializing && messages.length === 0) { // Re-trigger initial greeting if setup failed completely
-            setIsAiResponding(true); // Set to true before async call
+        setIsAiResponding(false); 
+        if (!isInitializing && messages.length === 0) { 
+            setIsAiResponding(true); 
             try {
                 const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
                 const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
@@ -561,6 +582,7 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
+        console.error("Selfie generation failed (flow returned error):", result.error);
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
