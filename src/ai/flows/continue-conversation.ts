@@ -28,16 +28,19 @@ const SelfieDecisionEnum = z.enum([
   'PROACTIVE_SELFIE_OFFER' // AI wants to offer a selfie, ask user first
 ]);
 
+const MusicPlaybackInfoSchema = z.object({ 
+  song: z.string().describe('The title of the song identified.'),
+  artist: z.string().optional().describe('The artist of the song, if identified.'),
+  status: z.enum(['playing_simulation', 'could_not_identify', 'error_in_tool']).describe('Status of the music request handling.'),
+  youtubeSearchUrl: z.string().optional().describe('A YouTube search URL for the identified song and artist.'),
+}).describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM, including a YouTube search URL. Can be null or absent.");
+
+
 const ContinueConversationOutputSchema = z.object({
-  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question."),
+  responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question. If 'playing' music, this text should confirm the action and provide a YouTube link."),
   decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
   selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
-  musicPlayback: z.object({ // Optional object for music info
-    song: z.string().describe('The title of the song identified.'),
-    artist: z.string().optional().describe('The artist of the song, if identified.'),
-    status: z.enum(['playing_simulation', 'could_not_identify', 'error_in_tool']).describe('Status of the music request handling.'),
-    youtubeSearchUrl: z.string().optional().describe('A YouTube search URL for the identified song and artist.'),
-  }).optional().nullable().describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM, including a YouTube search URL. Can be null or absent."),
+  musicPlayback: MusicPlaybackInfoSchema.optional().nullable(),
 });
 export type ContinueConversationOutput = z.infer<typeof ContinueConversationOutputSchema>;
 
@@ -102,34 +105,32 @@ const continueConversationFlow = ai.defineFlow(
       const promptResponse = await prompt(input);
       output = promptResponse.output;
     } catch (error: any) {
-      // Check if the error message indicates a Google API specific error or a generic Genkit error
       const errorMessage = error.message || String(error);
       console.warn(`Error calling LLM in continueConversationFlow (User: ${input.lastUserMessage}): ${errorMessage}`);
       
-      // Provide a user-friendly fallback response
-      let friendlyErrorText = "I'm having a little trouble connecting right now, could you try that again in a moment? If this persists, maybe we can talk about something else. 😊";
+      let friendlyErrorText = "Ой, у меня небольшие технические шоколадки! Попробуй обратиться чуть позже, хорошо? Если не пройдет, можем пока поболтать о чем-нибудь другом. 😊";
       if (errorMessage.includes('503') || errorMessage.toLowerCase().includes('overloaded')) {
-        friendlyErrorText = "Phew, my circuits are a bit warm! The AI brain is very busy right now. Can we try that again in a little bit? 💖";
+        friendlyErrorText = "Уф, мои лампочки перегрелись! Мозг искусственного интеллекта сейчас очень занят. Можем попробовать еще раз через минутку? 💖";
       } else if (errorMessage.toLowerCase().includes('api key not valid')) {
-         friendlyErrorText = "Oh dear, it seems there's an issue with my connection to the AI services. My support team needs to check this. Let's chat about something simple for now!";
+         friendlyErrorText = "Ох, кажется, что-то не так с моим подключением к AI-сервисам. Моей команде поддержки нужно это проверить. Давай пока поговорим о чем-нибудь простом!";
       }
 
       return {
         responseText: friendlyErrorText,
         decision: 'NORMAL_RESPONSE' as const,
-        // selfieContext and musicPlayback will be undefined, which is fine as they are optional or nullable
+        // selfieContext and musicPlayback will be undefined or null, which is fine as they are optional or nullable
       };
     }
     
     if (!output) {
         console.warn('LLM output was undefined for continueConversationFlow. Falling back to default normal response.');
-        return { responseText: "Sorry, I'm a bit lost for words right now.", decision: 'NORMAL_RESPONSE' as const };
+        return { responseText: "Извини, у меня что-то слова закончились.", decision: 'NORMAL_RESPONSE' as const };
     }
 
     if (!output.decision || !Object.values(SelfieDecisionEnum.enum).includes(output.decision as any)) {
         console.warn(`AI decision missing or invalid in LLM output: ${output.decision}. Falling back to normal response for text: ${output.responseText}`);
         return { 
-            responseText: output.responseText || "I'm not sure what to say to that!", 
+            responseText: output.responseText || "Я не уверена, что на это ответить!", 
             decision: 'NORMAL_RESPONSE' as const
         };
     }
@@ -137,24 +138,23 @@ const continueConversationFlow = ai.defineFlow(
     if ((output.decision === 'IMPLICIT_SELFIE_NOW' || output.decision === 'PROACTIVE_SELFIE_OFFER') && !output.selfieContext) {
         console.warn(`Selfie context missing for AI decision: ${output.decision}. Degrading to normal response for text: ${output.responseText}`);
         return { 
-            responseText: output.responseText || "I wanted to show you something, but I got a bit muddled!", 
+            responseText: output.responseText || "Хотела тебе кое-что показать, но немного запуталась!", 
             decision: 'NORMAL_RESPONSE' as const
         };
     }
     
     if (typeof output.responseText !== 'string' || output.responseText.trim() === '') {
         console.warn(`AI responseText is not a string or empty: ${output.responseText}. Falling back to default.`);
-        output.responseText = "I'm a bit tongue-tied at the moment!";
+        output.responseText = "Я что-то немного не в голосе сейчас!";
         if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) {
             output.decision = 'NORMAL_RESPONSE' as const;
         }
     }
 
-    // Validate musicPlayback if present
     if (output.musicPlayback) {
         if (!output.musicPlayback.song || !output.musicPlayback.status) {
             console.warn('MusicPlayback data from LLM is incomplete. Clearing musicPlayback.', output.musicPlayback);
-            output.musicPlayback = null; // or undefined, depending on how you want to handle it. Null is fine since schema allows it.
+            output.musicPlayback = null; 
         } else if (output.musicPlayback.status === 'playing_simulation' && !output.musicPlayback.youtubeSearchUrl) {
             console.warn('MusicPlayback status is playing_simulation but youtubeSearchUrl is missing. Clearing musicPlayback.', output.musicPlayback);
             output.musicPlayback = null;
@@ -164,6 +164,3 @@ const continueConversationFlow = ai.defineFlow(
     return output;
   }
 );
-
-
-      
