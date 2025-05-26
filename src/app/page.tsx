@@ -214,14 +214,14 @@ export default function VirtualDatePage() {
         }
       }
       return;
-    } else if (trimmedMessage.toLowerCase().startsWith('/photo ')) {
+    } else if (trimmedMessage.toLowerCase().startsWith('/photo')) { // Removed space to allow /photo or /photo description
         if (!appSettings) {
             toast({ title: "Photoshoot Error", description: "Please complete the setup first to use the photoshoot feature.", variant: "destructive" });
             return;
         }
         
         let baseUriToUse: string | undefined | null = null;
-        let photoshootDescription = trimmedMessage.substring(7).trim(); 
+        let photoshootDescription = trimmedMessage.substring(trimmedMessage.toLowerCase().startsWith('/photo ') ? 7 : 6).trim(); 
         
         const dataUriRegex = /(data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+))/;
         const match = photoshootDescription.match(dataUriRegex); 
@@ -238,10 +238,7 @@ export default function VirtualDatePage() {
             addMessage({ sender: 'ai', text: "I need a base image for the photoshoot. Please complete your avatar setup or include an image data URI in your command."});
             return;
         }
-        if (!photoshootDescription) {
-            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command. For example: `/photo relaxing by the pool`" });
-            return;
-        }
+        // photoshootDescription can now be empty if user only types /photo
 
         addMessage({ sender: 'user', text: trimmedMessage });
         await handleGeneratePhotoshootRequest(photoshootDescription, baseUriToUse, appSettings);
@@ -313,12 +310,11 @@ export default function VirtualDatePage() {
           if (conversationOutput.responseText) {
               addMessage({ sender: 'ai', text: conversationOutput.responseText });
           }
+          // Re-check decision from this new conversation output
           if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
               await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings, conversationOutput.responseText);
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
               setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
-          } else if (conversationOutput.musicPlayback) {
-             // Music playback already handled by the continueConversation flow via textResponse. No extra client action.
           }
         }
         setPendingProactiveSelfie(null);
@@ -416,11 +412,7 @@ export default function VirtualDatePage() {
             await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings, conversationOutput.responseText);
         } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
             setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
-        } else if (conversationOutput.musicPlayback) {
-             // Music playback is now handled by the AI's responseText.
-             // No extra client action needed beyond displaying the message.
         }
-
 
       } else if (clientSetupStep !== 'SELECTING_VOICE') {
          console.warn("Message sent but appSettings are null and not in CHAT_READY setup step, or in SELECTING_VOICE step.");
@@ -573,7 +565,7 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        // console.error("Selfie generation failed (flow returned error):", result.error); // Removed as per user request
+        // console.error no longer needed here as per user request
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -588,11 +580,12 @@ export default function VirtualDatePage() {
     if (!currentAppSettings || !baseImageDataForPhotoshoot || isGeneratingPhotoshoot || isAiResponding || isGeneratingSelfie) return;
 
     setIsGeneratingPhotoshoot(true);
-    addMessage({ sender: 'ai', text: `Присылаю фотосессию на тему: "${description}"! Это может занять некоторое время... 📸` });
+    addMessage({ sender: 'ai', text: `Присылаю фотосессию на тему: "${description || 'как на фото'}"! Это может занять некоторое время... 📸` });
+
 
     try {
       const photoshootInput: GeneratePhotoshootImagesInput = {
-        userDescription: description,
+        userDescription: description, // Can be empty string
         baseImageDataUri: baseImageDataForPhotoshoot,
       };
       const result: GeneratePhotoshootImagesOutput = await generatePhotoshootImages(photoshootInput);
@@ -604,7 +597,7 @@ export default function VirtualDatePage() {
         }
         addMessage({ sender: 'ai', text: "Фото прислала 😊" });
       } else {
-        addMessage({ sender: 'ai', text: `I tried to do a photoshoot themed "${description}", but couldn't get any good shots right now. Maybe another time? ${result.error ? `(${result.error})` : ''}`});
+        addMessage({ sender: 'ai', text: `I tried to do a photoshoot themed "${description || 'as in the image'}", but couldn't get any good shots right now. Maybe another time? ${result.error ? `(${result.error})` : ''}`});
       }
     } catch (error) {
       console.error("Unexpected error in handleGeneratePhotoshootRequest:", error);
