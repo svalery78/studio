@@ -281,7 +281,7 @@ export default function VirtualDatePage() {
 
         if (isAffirmative) { 
           addMessage({ sender: 'ai', text: "Great! One moment... ✨" });
-          await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings);
+          await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings, trimmedMessage);
         } else {
           addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
           const conversationOutput: ContinueConversationOutput = await continueConversation({
@@ -296,7 +296,7 @@ export default function VirtualDatePage() {
               addMessage({ sender: 'ai', text: conversationOutput.responseText });
           }
           if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
-              await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
+              await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings, conversationOutput.responseText);
           } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
               setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
           }
@@ -393,7 +393,7 @@ export default function VirtualDatePage() {
         }
 
         if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
-            await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings);
+            await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings, conversationOutput.responseText);
         } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
             setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
         }
@@ -517,7 +517,7 @@ export default function VirtualDatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing ]);
   
-  const handleGenerateSelfieRequest = async (userSelfieRequestText: string, currentAppSettings: AppSettings) => {
+  const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings, userRequestText?: string) => {
     if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding || isGeneratingPhotoshoot) return;
 
     setIsGeneratingSelfie(true);    
@@ -533,7 +533,7 @@ export default function VirtualDatePage() {
         topicPreferences: currentAppSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
         baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
-        userSelfieRequestText: userSelfieRequestText,
+        userSelfieRequestText: userRequestText || selfieContext, // Prioritize direct user text if available
       };
       
       const result: GenerateSelfieOutput = await generateSelfie(selfieInput);
@@ -541,6 +541,7 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
+        console.error("Selfie generation failed (flow returned error):", result.error);
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -569,7 +570,7 @@ export default function VirtualDatePage() {
           addMessage({ sender: 'ai', imageUrl: imageUrl });
           await new Promise(resolve => setTimeout(resolve, 500)); 
         }
-        addMessage({ sender: 'ai', text: "Фото прислала" });
+        addMessage({ sender: 'ai', text: "Фото прислала 😊" });
       } else {
         addMessage({ sender: 'ai', text: `I tried to do a photoshoot themed "${description}", but couldn't get any good shots right now. Maybe another time? ${result.error ? `(${result.error})` : ''}`});
       }
@@ -608,7 +609,7 @@ export default function VirtualDatePage() {
               onSendMessage={handleSendMessage}
               onSelfieRequest={(userText) => {
                   if (clientSetupStep === 'CHAT_READY' && appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie && !isGeneratingPhotoshoot) {
-                     handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
+                     handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings, userText);
                   }
                 }
               }
@@ -699,7 +700,7 @@ export default function VirtualDatePage() {
               onSendMessage={handleSendMessage}
               onSelfieRequest={(userText) => {
                 if (appSettings && !pendingProactiveSelfie && !isAiResponding && !isGeneratingSelfie && !isGeneratingPhotoshoot) {
-                  handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings);
+                  handleGenerateSelfieRequest(userText || "User clicked the selfie button", appSettings, userText);
                 }
               }}
               isSendingMessage={isAiResponding || isGeneratingSelfie || isGeneratingPhotoshoot}
