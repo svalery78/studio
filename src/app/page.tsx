@@ -67,7 +67,6 @@ export default function VirtualDatePage() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Attempt to get browser language for the very first AI message
     if (typeof window !== 'undefined' && navigator.language) {
       setInitialLanguageHint("User's preferred language seems to be: " + navigator.language.split('-')[0]);
     }
@@ -216,17 +215,37 @@ export default function VirtualDatePage() {
       }
       return;
     } else if (trimmedMessage.toLowerCase().startsWith('/photo ')) {
-        if (!appSettings || !appSettings.selectedAvatarDataUri) {
+        if (!appSettings) {
             toast({ title: "Photoshoot Error", description: "Please complete the setup first to use the photoshoot feature.", variant: "destructive" });
             return;
         }
-        const photoshootDescription = trimmedMessage.substring(7).trim();
-        if (!photoshootDescription) {
-            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command. For example: `/photo relaxing by the pool`" });
+        
+        const dataUriRegex = /(data:image\/(?:png|jpeg|gif|webp|svg\+xml);base64,([A-Za-z0-9+/=]+))/;
+        const match = trimmedMessage.match(dataUriRegex);
+        let baseUriToUse = appSettings.selectedAvatarDataUri;
+        let photoshootDescription = trimmedMessage.substring(7).trim(); 
+        let userProvidedImage = false;
+
+        if (match && match[0]) {
+          baseUriToUse = match[0];
+          photoshootDescription = photoshootDescription.replace(match[0], '').trim();
+          userProvidedImage = true;
+        }
+
+        if (!baseUriToUse) {
+            addMessage({ sender: 'ai', text: "I need a base image for the photoshoot. Please complete your avatar setup or include an image data URI in your command."});
             return;
         }
+        if (!photoshootDescription) {
+            addMessage({ sender: 'ai', text: "Please provide a description for the photoshoot after the /photo command and any image. For example: `/photo relaxing by the pool`" });
+            return;
+        }
+
         addMessage({ sender: 'user', text: trimmedMessage });
-        await handleGeneratePhotoshootRequest(photoshootDescription, appSettings);
+        if (userProvidedImage) {
+            addMessage({ sender: 'ai', text: "Understood! Using the image you provided as the base for this photoshoot." });
+        }
+        await handleGeneratePhotoshootRequest(photoshootDescription, baseUriToUse, appSettings);
         return;
     } else if (trimmedMessage.toLowerCase() === '/voice') {
       if (!settingsDraft.userName && !appSettings?.userName) { 
@@ -401,23 +420,25 @@ export default function VirtualDatePage() {
       } else if (clientSetupStep !== 'SELECTING_VOICE') {
          console.warn("Message sent but appSettings are null and not in CHAT_READY setup step, or in SELECTING_VOICE step.");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error during setup or conversation step:", error);
-      toast({ title: "Error", description: "Something went wrong. Please try again or type /start.", variant: "destructive" });
+      addMessage({sender: 'ai', text: "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?"});
       if (clientSetupStep !== 'CHAT_READY') {
         setClientSetupStep('AWAITING_AI_GREETING');
         setMessages([]); 
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
-        setIsAiResponding(false);
-        if (!isInitializing && messages.length === 0) { 
-            const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
-            const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
-            addMessage({ sender: 'ai', text: response.aiResponse });
-            setClientSetupStep('AWAITING_USER_NAME');
+        setIsAiResponding(false); // Ensure AI is not stuck in responding state
+        if (!isInitializing && messages.length === 0) { // Re-trigger initial greeting if setup failed completely
+            setIsAiResponding(true); // Set to true before async call
+            try {
+                const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
+                const response: GetSetupPromptOutput = await getSetupPrompt(inputForAISetup);
+                addMessage({ sender: 'ai', text: response.aiResponse });
+                setClientSetupStep('AWAITING_USER_NAME');
+            } catch (e) { console.error("Error re-initiating setup after failure:", e); }
+             finally { setIsAiResponding(false); }
         }
-      } else {
-        addMessage({sender: 'ai', text: "Ой, что-то пошло не так. Давай попробуем еще раз чуть позже?"});
       }
     } finally {
       setIsAiResponding(false);
@@ -502,19 +523,18 @@ export default function VirtualDatePage() {
         personalityTraits: finalAppSettings.personalityTraits,
         topicPreferences: finalAppSettings.topicPreferences,
       });
-      setMessages([{ sender: 'ai', text: `Great choice, ${finalAppSettings.userName}! I'm all set up. ${firstMessage}`, id: Date.now().toString(), timestamp: Date.now() }]);
+      setMessages([{ sender: 'ai', text: `Great choice, ${finalAppSettings.userName}! I'm all set up. ${firstMessage}`, id: Date.now().toString() + Math.random().toString(36).substring(2,7), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY');
       setSetupVisualPhase('chat_ready');
     } catch (error) {
       console.error("Error starting conversation after avatar selection:", error);
       toast({ title: "Error", description: "Could not start conversation.", variant: "destructive" });
-      setMessages([{ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!", id: Date.now().toString(), timestamp: Date.now() }]);
+      setMessages([{ sender: 'ai', text: "I'm all set with my new look, but I'm having a little trouble starting our chat. Let's try again in a moment!", id: Date.now().toString() + Math.random().toString(36).substring(2,7), timestamp: Date.now() }]);
       setClientSetupStep('CHAT_READY'); 
       setSetupVisualPhase('chat_ready');
     } finally {
       setIsAiResponding(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing ]);
   
   const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings, userRequestText?: string) => {
@@ -533,7 +553,7 @@ export default function VirtualDatePage() {
         topicPreferences: currentAppSettings.topicPreferences,
         chatHistory: chatHistoryForSelfie,
         baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
-        userSelfieRequestText: userRequestText || selfieContext, // Prioritize direct user text if available
+        userSelfieRequestText: userRequestText || selfieContext, 
       };
       
       const result: GenerateSelfieOutput = await generateSelfie(selfieInput);
@@ -541,7 +561,6 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        console.error("Selfie generation failed (flow returned error):", result.error);
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -552,8 +571,8 @@ export default function VirtualDatePage() {
     }
   };
 
-  const handleGeneratePhotoshootRequest = async (description: string, currentAppSettings: AppSettings) => {
-    if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingPhotoshoot || isAiResponding || isGeneratingSelfie) return;
+  const handleGeneratePhotoshootRequest = async (description: string, baseImageDataForPhotoshoot: string, currentAppSettings: AppSettings) => {
+    if (!currentAppSettings || !baseImageDataForPhotoshoot || isGeneratingPhotoshoot || isAiResponding || isGeneratingSelfie) return;
 
     setIsGeneratingPhotoshoot(true);
     addMessage({ sender: 'ai', text: `Присылаю фотосессию на тему: "${description}"! Это может занять некоторое время... 📸` });
@@ -561,7 +580,7 @@ export default function VirtualDatePage() {
     try {
       const photoshootInput: GeneratePhotoshootImagesInput = {
         userDescription: description,
-        baseImageDataUri: currentAppSettings.selectedAvatarDataUri,
+        baseImageDataUri: baseImageDataForPhotoshoot,
       };
       const result: GeneratePhotoshootImagesOutput = await generatePhotoshootImages(photoshootInput);
 
