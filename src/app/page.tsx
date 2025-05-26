@@ -18,7 +18,7 @@ import type { AppSettings, Message } from '@/lib/constants';
 import { LOCAL_STORAGE_SETTINGS_KEY, DEFAULT_SETTINGS_DRAFT } from '@/lib/constants';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Loader2, CheckCircle, Camera } from 'lucide-react';
+import { Loader2, CheckCircle } from 'lucide-react';
 import { VoiceSelector } from '@/components/voice-selector';
 
 type ClientSetupStep = 
@@ -200,7 +200,6 @@ export default function VirtualDatePage() {
       setIsGeneratingPhotoshoot(false);
       window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY); 
       toast({ title: "New Chat Started", description: "Let's set up your AI companion!" });
-      // Trigger AI greeting if messages are empty after reset
        if (messages.length === 0 && !isInitializing) { 
         setIsAiResponding(true);
         try {
@@ -555,7 +554,7 @@ export default function VirtualDatePage() {
     if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingPhotoshoot || isAiResponding || isGeneratingSelfie) return;
 
     setIsGeneratingPhotoshoot(true);
-    addMessage({ sender: 'ai', text: `Okay, starting your photoshoot themed: "${description}"! This might take a little while... 📸` });
+    addMessage({ sender: 'ai', text: `Присылаю фотосессию на тему: "${description}"! Это может занять некоторое время... 📸` });
 
     try {
       const photoshootInput: GeneratePhotoshootImagesInput = {
@@ -567,7 +566,6 @@ export default function VirtualDatePage() {
       if (result.photoshootImages && result.photoshootImages.length > 0) {
         for (const imageUrl of result.photoshootImages) {
           addMessage({ sender: 'ai', imageUrl: imageUrl });
-          // Add a small delay between adding images to the chat for better UX
           await new Promise(resolve => setTimeout(resolve, 500)); 
         }
         addMessage({ sender: 'ai', text: "Photoshoot complete! Hope you like them! 😊" });
