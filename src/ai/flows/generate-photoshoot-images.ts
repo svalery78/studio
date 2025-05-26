@@ -47,36 +47,31 @@ const photoshootPromptsGenerator = ai.definePrompt({
   name: 'generatePhotoshootPromptsFromBaseImage',
   input: { schema: GeneratePhotoshootImagesInputSchema },
   output: { schema: z.object({
-    imagePrompts: z.array(z.string()).length(5).describe("Five distinct, detailed image generation prompts. Each prompt must explicitly describe the AI girlfriend's appearance, clothing, and environment based on the baseImageDataUri, and then introduce a specific variation in pose, angle, expression, or minor detail. User_description, if provided and compatible, should be integrated.")
+    imagePrompts: z.array(z.string()).length(5).describe("Five distinct, detailed image generation prompts. Each prompt must explicitly state that the AI girlfriend's appearance, clothing, and environment are based on the baseImageDataUri, and then introduce a specific variation in pose, angle, expression, or minor detail. User_description, if provided and compatible, should be integrated into the variation.")
   })},
   prompt: `You are an expert photoshoot director for an AI girlfriend.
 You will be given:
-1. A base image: {{media url=baseImageDataUri}}
-   This base image shows the AI girlfriend. Carefully analyze it to understand:
-   - Her core appearance (face, hair, body type - **this MUST be preserved and described in your output prompts**).
-   - Her **current clothing** (e.g., "a blue summer dress", "a black bikini" - **You MUST explicitly describe these clothing details in each of your 5 output prompts**).
-   - The **current environment/location** (e.g., "at an outdoor cafe table", "by a poolside" - **You MUST explicitly describe these environmental details in each of your 5 output prompts**).
-   - Any ongoing activity or mood.
+1. A base image of the AI girlfriend: {{media url=baseImageDataUri}}
+   This base image is CRITICAL. You must carefully analyze it to understand:
+   - Her core appearance (face, hair, body type).
+   - Her **current clothing**.
+   - The **current environment/location**.
 2. An optional user description/modifier for the photoshoot: "{{#if userDescription}}{{{userDescription}}}{{else}}No specific modifier provided by the user.{{/if}}"
 
 Your task is to generate 5 distinct and detailed text prompts for an image generation model.
 These prompts MUST result in photorealistic images that are **variations or continuations of the scene depicted in the base image**.
 
-Each of your 5 generated prompts must:
-- Aim for a photorealistic image.
-- **Start by describing the AI girlfriend based on the base image's appearance (face, hair, etc.).**
-- **Then, explicitly describe her wearing the clothing identified from the base image.** For example, if she's wearing a red dress in the base image, your prompt should state "...wearing her red dress (as seen in the base image)...".
-- **Then, explicitly describe her in the environment/location identified from the base image.** For example, if she's at a cafe in the base image, your prompt should state "...at the cafe (from the base image)...".
-- After establishing these core elements from the base image, introduce variations in camera angle, pose, facial expression, or minor, contextually relevant details/actions.
-- If userDescription is given and compatible (e.g., "holding a book", "smiling"), integrate this into the varied scene. For instance, "...at the cafe, wearing her red dress, and she is now holding a book and smiling."
-- If userDescription suggests a *major, incompatible change* to clothing or environment (e.g., base image is "beach bikini", user says "in a winter coat in the snow"), you should **still prioritize generating variations of the original scene from the base image (beach bikini)**. The goal is a photoshoot of the *original scene*. You can subtly note if the user's request was too divergent to incorporate.
+Each of your 5 generated prompts must be a complete instruction for generating one photorealistic image and MUST follow this structure:
 
-Example of one output prompt:
-- Base Image: Shows AI girlfriend with brown hair, wearing a red summer dress, sitting at an outdoor cafe table.
-- User Description: "looking happy"
-- Generated Output Prompt (1 of 5): "Photorealistic image of the AI girlfriend (brown hair, matching base image appearance) wearing her red summer dress (from base image) and sitting at the outdoor cafe table (from base image). She is looking happy and smiling towards the camera. Slightly different camera angle, medium shot."
+1.  Start with: "Photorealistic image of the AI girlfriend. Her appearance (face, hair, and body type) **must strictly match the person in the base image provided**."
+2.  Continue with: "She is wearing the **EXACT SAME OUTFIT** as seen in the base image. She is in the **EXACT SAME ENVIRONMENT/LOCATION** as seen in the base image." (Do not invent new clothing or locations here; refer to what is visible in the base image).
+3.  Then, describe the VARIATION for this specific shot: "[Describe a different camera angle (e.g., close-up, medium shot, from above), a different pose (e.g., looking over her shoulder, hands on hips), a different facial expression (e.g., smiling, thoughtful, laughing), or a minor, contextually relevant action or added detail. If userDescription ('{{{userDescription}}}') is provided and compatible with the base scene, integrate it here as part of the variation. For example, if userDescription is 'holding a book' and the base image is her in a park, the variation could be 'She is now holding a book and reading it, with a thoughtful expression. Medium shot.']."
+4.  **IMPORTANT**: Do NOT change the core outfit or overall environment from the base image unless the userDescription explicitly asks for a *very minor, compatible* alteration that can be added to the existing scene (e.g., 'wearing a hat' if the base image is outdoors and a hat makes sense; 'holding a flower' if appropriate). If userDescription suggests a major incompatible change (e.g., base image is 'beach bikini', user says 'in a winter coat in the snow'), you MUST IGNORE the userDescription for outfit/location and focus on varying pose/expression/angle within the original scene from the base image. The goal is a photoshoot of the *original scene*.
 
-Output 5 distinct prompts structured like the example above.
+Example of one output prompt (assuming base image is girl with brown hair, red dress, outdoor cafe):
+"Photorealistic image of the AI girlfriend. Her appearance (face, hair, and body type) **must strictly match the person in the base image provided**. She is wearing the **EXACT SAME OUTFIT** (red summer dress) as seen in the base image. She is in the **EXACT SAME ENVIRONMENT/LOCATION** (outdoor cafe table) as seen in the base image. For this shot, she is smiling warmly towards the camera, and the camera angle is a slightly lower medium shot."
+
+Output 5 distinct prompts structured like the example above, ensuring each describes a unique variation.
 `,
 });
 
@@ -107,11 +102,11 @@ const generatePhotoshootImagesFlow = ai.defineFlow(
     const photoshootImages: string[] = [];
     for (const imagePromptText of generatedImagePrompts) {
       try {
-        // The imagePromptText now contains very specific instructions to match the base image's elements (person, clothing, environment)
-        // and then adds a variation.
+        // imagePromptText now comes from photoshootPromptsGenerator and should be very explicit
+        // about matching the base image's person, outfit, and environment, then adding a variation.
         const imagePromptParts: any[] = [
-            { media: { url: input.baseImageDataUri } }, // Base image for visual reference of the person
-            { text: `${imagePromptText}. **Ensure the person's appearance (face, hair, body type) strictly matches the person in the provided base media.** The image should be high quality, detailed, with realistic lighting.` }
+            { media: { url: input.baseImageDataUri } },
+            { text: `${imagePromptText}. **Crucially, the person's appearance (face, hair, body type), THEIR OUTFIT, AND THE ENVIRONMENT/LOCATION must strictly match those in the provided base media, except for the specific variation described in this prompt.** The image should be high quality, detailed, with realistic lighting.` }
         ];
 
         const {media} = await ai.generate({
