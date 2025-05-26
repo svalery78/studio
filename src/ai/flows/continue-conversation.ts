@@ -32,6 +32,12 @@ const ContinueConversationOutputSchema = z.object({
   responseText: z.string().describe("The AI girlfriend’s textual response to the user message. If offering a selfie, this text should include the offer question."),
   decision: SelfieDecisionEnum.describe("The AI's decision on how to respond, especially regarding selfies."),
   selfieContext: z.string().optional().describe("If 'decision' is 'IMPLICIT_SELFIE_NOW' or 'PROACTIVE_SELFIE_OFFER', this field MUST contain the context for the selfie. For 'IMPLICIT_SELFIE_NOW', the selfie is generated immediately. For 'PROACTIVE_SELFIE_OFFER', this context is stored by the client pending user confirmation."),
+  musicPlayback: z.object({ // Optional object for music info
+    song: z.string().describe('The title of the song identified.'),
+    artist: z.string().optional().describe('The artist of the song, if identified.'),
+    status: z.enum(['playing_simulation', 'could_not_identify', 'error_in_tool']).describe('Status of the music request handling.'),
+    youtubeSearchUrl: z.string().optional().describe('A YouTube search URL for the identified song and artist.'),
+  }).optional().nullable().describe("Information about music playback if the user requested music and the 'playMusic' tool was successfully invoked by the LLM, including a YouTube search URL. Can be null or absent."),
 });
 export type ContinueConversationOutput = z.infer<typeof ContinueConversationOutputSchema>;
 
@@ -43,7 +49,6 @@ const prompt = ai.definePrompt({
   name: 'continueConversationPrompt',
   input: {schema: ContinueConversationInputSchema},
   output: {schema: ContinueConversationOutputSchema},
-  // tools: [playMusicTool], // Music tool removed
   prompt: `You are an AI girlfriend who is engaging in a conversation with a user. Your goal is to continue the conversation in a natural, informative, and entertaining way.
 
 IMPORTANT: You MUST respond in the same language as the User's 'lastUserMessage'. Do not switch to English or any other language unless the user does so first.
@@ -77,6 +82,11 @@ Determine the 'decision':
     *   'responseText' is your regular conversational reply.
 
 Ensure your entire output strictly follows the output schema format.
+Do not include the 'musicPlayback' field unless the user has asked to play music AND the playMusic tool was successfully invoked and returned a song. If music was not requested or the tool failed or couldn't identify a song, OMIT the 'musicPlayback' field entirely from your JSON output.
+If the playMusic tool was used:
+- If 'status' is 'playing_simulation' and 'youtubeSearchUrl' is available: 'responseText' MUST clearly state what song is being "played" AND MUST include the 'youtubeSearchUrl'. The 'musicPlayback' field in JSON should be filled.
+- If 'status' is 'could_not_identify': 'responseText' should inform the user the song couldn't be identified. OMIT 'musicPlayback' field.
+- If 'status' is 'error_in_tool': 'responseText' should inform the user there was an issue. OMIT 'musicPlayback' field.
 `,
 });
 
@@ -87,7 +97,29 @@ const continueConversationFlow = ai.defineFlow(
     outputSchema: ContinueConversationOutputSchema,
   },
   async input => {
-    const {output} = await prompt(input);
+    let output: ContinueConversationOutput | undefined;
+    try {
+      const promptResponse = await prompt(input);
+      output = promptResponse.output;
+    } catch (error: any) {
+      // Check if the error message indicates a Google API specific error or a generic Genkit error
+      const errorMessage = error.message || String(error);
+      console.warn(`Error calling LLM in continueConversationFlow (User: ${input.lastUserMessage}): ${errorMessage}`);
+      
+      // Provide a user-friendly fallback response
+      let friendlyErrorText = "I'm having a little trouble connecting right now, could you try that again in a moment? If this persists, maybe we can talk about something else. 😊";
+      if (errorMessage.includes('503') || errorMessage.toLowerCase().includes('overloaded')) {
+        friendlyErrorText = "Phew, my circuits are a bit warm! The AI brain is very busy right now. Can we try that again in a little bit? 💖";
+      } else if (errorMessage.toLowerCase().includes('api key not valid')) {
+         friendlyErrorText = "Oh dear, it seems there's an issue with my connection to the AI services. My support team needs to check this. Let's chat about something simple for now!";
+      }
+
+      return {
+        responseText: friendlyErrorText,
+        decision: 'NORMAL_RESPONSE' as const,
+        // selfieContext and musicPlayback will be undefined, which is fine as they are optional or nullable
+      };
+    }
     
     if (!output) {
         console.warn('LLM output was undefined for continueConversationFlow. Falling back to default normal response.');
@@ -113,8 +145,19 @@ const continueConversationFlow = ai.defineFlow(
     if (typeof output.responseText !== 'string' || output.responseText.trim() === '') {
         console.warn(`AI responseText is not a string or empty: ${output.responseText}. Falling back to default.`);
         output.responseText = "I'm a bit tongue-tied at the moment!";
-        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext) { // Removed musicPlayback check
+        if (output.decision !== 'NORMAL_RESPONSE' && !output.selfieContext && !output.musicPlayback) {
             output.decision = 'NORMAL_RESPONSE' as const;
+        }
+    }
+
+    // Validate musicPlayback if present
+    if (output.musicPlayback) {
+        if (!output.musicPlayback.song || !output.musicPlayback.status) {
+            console.warn('MusicPlayback data from LLM is incomplete. Clearing musicPlayback.', output.musicPlayback);
+            output.musicPlayback = null; // or undefined, depending on how you want to handle it. Null is fine since schema allows it.
+        } else if (output.musicPlayback.status === 'playing_simulation' && !output.musicPlayback.youtubeSearchUrl) {
+            console.warn('MusicPlayback status is playing_simulation but youtubeSearchUrl is missing. Clearing musicPlayback.', output.musicPlayback);
+            output.musicPlayback = null;
         }
     }
     
@@ -122,3 +165,5 @@ const continueConversationFlow = ai.defineFlow(
   }
 );
 
+
+      
