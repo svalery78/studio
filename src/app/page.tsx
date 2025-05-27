@@ -62,6 +62,8 @@ export default function VirtualDatePage() {
   const [initialLanguageHint, setInitialLanguageHint] = useState<string>('Hello');
   const [pendingProactiveSelfie, setPendingProactiveSelfie] = useState<{ context: string } | null>(null);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [preAttachedImage, setPreAttachedImage] = useState<string | null>(null);
+
 
   const { toast } = useToast();
 
@@ -214,7 +216,7 @@ export default function VirtualDatePage() {
         }
       }
       return;
-    } else if (trimmedMessage.toLowerCase().startsWith('/photo')) { // Removed space to allow /photo or /photo description
+    } else if (trimmedMessage.toLowerCase().startsWith('/photo')) { 
         if (!appSettings) {
             toast({ title: "Photoshoot Error", description: "Please complete the setup first to use the photoshoot feature.", variant: "destructive" });
             return;
@@ -238,8 +240,7 @@ export default function VirtualDatePage() {
             addMessage({ sender: 'ai', text: "I need a base image for the photoshoot. Please complete your avatar setup or include an image data URI in your command."});
             return;
         }
-        // photoshootDescription can now be empty if user only types /photo
-
+        
         addMessage({ sender: 'user', text: trimmedMessage });
         await handleGeneratePhotoshootRequest(photoshootDescription, baseUriToUse, appSettings);
         return;
@@ -299,23 +300,9 @@ export default function VirtualDatePage() {
           await handleGenerateSelfieRequest(pendingProactiveSelfie.context, appSettings, trimmedMessage);
         } else {
           addMessage({ sender: 'ai', text: "Alright, no worries! 😊" });
-          const conversationOutput: ContinueConversationOutput = await continueConversation({
-              lastUserMessage: trimmedMessage, 
-              chatHistory: messages.slice(-21, -1) 
-                  .map(msg => `${msg.sender === 'user' ? (appSettings?.userName || 'User') : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
-                  .join('\\n'),
-              personalityTraits: appSettings.personalityTraits,
-              topicPreferences: appSettings.topicPreferences,
-          });
-          if (conversationOutput.responseText) {
-              addMessage({ sender: 'ai', text: conversationOutput.responseText });
-          }
-          // Re-check decision from this new conversation output
-          if (conversationOutput.decision === 'IMPLICIT_SELFIE_NOW' && conversationOutput.selfieContext) {
-              await handleGenerateSelfieRequest(conversationOutput.selfieContext, appSettings, conversationOutput.responseText);
-          } else if (conversationOutput.decision === 'PROACTIVE_SELFIE_OFFER' && conversationOutput.selfieContext) {
-              setPendingProactiveSelfie({ context: conversationOutput.selfieContext });
-          }
+          // Since selfie was declined, just continue conversation with the user's current message.
+          // No need to call continueConversation again here unless the user's "no" is a new topic.
+          // For simplicity, we'll just let the AI respond to the next message normally.
         }
         setPendingProactiveSelfie(null);
       } else if (clientSetupStep !== 'CHAT_READY' && clientSetupStep !== 'SELECTING_VOICE') {
@@ -393,7 +380,7 @@ export default function VirtualDatePage() {
         }
       } else if (appSettings && clientSetupStep === 'CHAT_READY') {
         const chatHistory = messages
-          .slice(-21, -1) 
+          .slice(-20) // Use last 20 messages from current state for history
           .map(msg => `${msg.sender === 'user' ? appSettings.userName : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
           .join('\\n');
 
@@ -539,7 +526,7 @@ export default function VirtualDatePage() {
     } finally {
       setIsAiResponding(false);
     }
-  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing ]);
+  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing, messages.length ]);
   
   const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings, userRequestText?: string) => {
     if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding || isGeneratingPhotoshoot) return;
@@ -565,7 +552,6 @@ export default function VirtualDatePage() {
       if (result.selfieDataUri) {
         addMessage({ sender: 'ai', imageUrl: result.selfieDataUri });
       } else {
-        // console.error no longer needed here as per user request
         addMessage({ sender: 'ai', text: "Ой, не могу сейчас прислать селфи, солнышко! Моя камера немного капризничает. Попробую чуть позже для тебя! 😉" });
       }
     } catch (error) { 
@@ -585,7 +571,7 @@ export default function VirtualDatePage() {
 
     try {
       const photoshootInput: GeneratePhotoshootImagesInput = {
-        userDescription: description, // Can be empty string
+        userDescription: description, 
         baseImageDataUri: baseImageDataForPhotoshoot,
       };
       const result: GeneratePhotoshootImagesOutput = await generatePhotoshootImages(photoshootInput);
