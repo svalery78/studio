@@ -1,3 +1,4 @@
+
 # Firebase Studio
 
 This is a NextJS starter in Firebase Studio.
@@ -29,3 +30,8 @@ The application supports several commands that can be typed into the chat input:
 -   `/repeat`
     -   **Description**: Toggles the automatic voice playback of the AI companion's messages. When enabled, new messages from the AI will be spoken aloud automatically. When disabled, you will need to manually click the play button next to each AI message to hear it.
     -   **Usage**: Type `/repeat`
+
+-   `/help`
+    -   **Description**: Displays a list of all available commands and their descriptions.
+    -   **Usage**: Type `/help`
+
