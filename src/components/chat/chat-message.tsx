@@ -30,14 +30,21 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
   const [availableVoicesLoaded, setAvailableVoicesLoaded] = useState(false);
   const { toast } = useToast();
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
 
   useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted) return;
+
     const loadAndSetVoice = () => {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         const currentVoices = window.speechSynthesis.getVoices();
         if (currentVoices.length === 0) {
           setAvailableVoicesLoaded(false);
-          return; 
+          return;
         }
         setAvailableVoicesLoaded(true);
 
@@ -71,11 +78,11 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
         
         if (!selectedVoice && currentVoices.length > 0) {
             const browserLang = navigator.language.split('-')[0].toLowerCase();
-           selectedVoice = 
-            currentVoices.find(v => v.lang.toLowerCase().startsWith(browserLang) && v.default) || 
-            currentVoices.find(v => v.lang.toLowerCase().startsWith(browserLang)) || 
+           selectedVoice =
+            currentVoices.find(v => v.lang.toLowerCase().startsWith(browserLang) && v.default) ||
+            currentVoices.find(v => v.lang.toLowerCase().startsWith(browserLang)) ||
             currentVoices.find(v => v.name.toLowerCase().includes('female') || v.name.toLowerCase().includes('женский')) ||
-            currentVoices.find(v => !v.name.toLowerCase().includes('male')) || 
+            currentVoices.find(v => !v.name.toLowerCase().includes('male')) ||
             currentVoices[0];
         }
         setPreferredVoice(selectedVoice);
@@ -88,31 +95,32 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
         } else if (window.speechSynthesis.onvoiceschanged !== undefined) {
             window.speechSynthesis.onvoiceschanged = loadAndSetVoice;
         } else {
-            setTimeout(loadAndSetVoice, 250); 
+            // Fallback for browsers that don't fire onvoiceschanged or load voices immediately
+            setTimeout(loadAndSetVoice, 250);
         }
     }
     
     return () => {
-      if (typeof window !== 'undefined' && window.speechSynthesis ) {
+      if (hasMounted && typeof window !== 'undefined' && window.speechSynthesis ) {
         if (window.speechSynthesis.onvoiceschanged !== undefined) {
             window.speechSynthesis.onvoiceschanged = null;
         }
         // Stop any ongoing speech for this specific utterance when component unmounts or message.id changes
-        if (utteranceRef.current && speechSynthesis.speaking && speechSynthesis. παρών === utteranceRef.current) {
-             speechSynthesis.cancel(); // This cancels all speech, might need finer control if problematic
+        if (utteranceRef.current && speechSynthesis.speaking ) { // Check if an utterance exists and speech is active
+             speechSynthesis.cancel(); // This cancels all speech
         }
         setIsPlayingAudio(false);
       }
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.id, appSettings?.selectedVoiceName]);
+  }, [hasMounted, message.id, appSettings?.selectedVoiceName]);
 
   const handlePlayAudio = () => {
+    if (!hasMounted) return;
     if (typeof window !== 'undefined' && window.speechSynthesis && message.text) {
-      if (speechSynthesis.speaking) { // If anything is speaking, cancel it.
+      if (speechSynthesis.speaking) { 
         speechSynthesis.cancel();
-        setIsPlayingAudio(false); // Reset local playing state
-        // If the thing that was speaking was this message, we just stop.
+        setIsPlayingAudio(false); 
         if (utteranceRef.current && speechSynthesis. παρών === utteranceRef.current) {
           utteranceRef.current = null;
           return;
@@ -120,13 +128,13 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
       }
 
       const utterance = new SpeechSynthesisUtterance(message.text);
-      utteranceRef.current = utterance; // Store reference to this utterance
+      utteranceRef.current = utterance; 
       
       if (preferredVoice) {
         utterance.voice = preferredVoice;
-        utterance.lang = preferredVoice.lang; 
-      } else if (availableVoicesLoaded) { // Only try to set lang if voices are loaded
-        utterance.lang = navigator.language; 
+        utterance.lang = preferredVoice.lang;
+      } else if (availableVoicesLoaded) { 
+        utterance.lang = navigator.language;
       }
       
       utterance.onstart = () => setIsPlayingAudio(true);
@@ -137,7 +145,7 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
       utterance.onerror = (event) => {
         setIsPlayingAudio(false);
         utteranceRef.current = null;
-        toast({ title: "Audio Error", description: "Could not play audio for this message.", variant: "destructive" });
+        toast({ title: "Audio Error", description: `Could not play audio: ${event.error}`, variant: "destructive" });
       };
       speechSynthesis.speak(utterance);
     } else if (!message.text) {
@@ -149,16 +157,16 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
 
   // Auto-play logic
   useEffect(() => {
-    if (appSettings?.autoPlayAiMessages && !isUser && message.text && availableVoicesLoaded) {
+    if (hasMounted && appSettings?.autoPlayAiMessages && !isUser && message.text && availableVoicesLoaded) {
       const autoPlayTimeout = setTimeout(() => {
         if (typeof window !== 'undefined' && window.speechSynthesis && !window.speechSynthesis.speaking) {
            handlePlayAudio();
         }
-      }, 100); // Small delay to allow UI updates and prevent race conditions
+      }, 100); 
       return () => clearTimeout(autoPlayTimeout);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.id, appSettings?.autoPlayAiMessages, message.text, isUser, availableVoicesLoaded]);
+  }, [hasMounted, message.id, appSettings?.autoPlayAiMessages, message.text, isUser, availableVoicesLoaded]);
 
 
   return (
@@ -169,7 +177,7 @@ export function ChatMessage({ message, appSettings }: ChatMessageProps) {
           <CardContent className="p-3 break-words">
             <div className="flex items-start justify-between gap-2">
               {message.text && <p className="whitespace-pre-wrap flex-grow leading-relaxed">{message.text}</p>}
-              {!isUser && message.text && availableVoicesLoaded && (
+              {hasMounted && !isUser && message.text && availableVoicesLoaded && (
                 <Button
                   variant="ghost"
                   size="icon"

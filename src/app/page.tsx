@@ -63,18 +63,25 @@ export default function VirtualDatePage() {
   const [pendingProactiveSelfie, setPendingProactiveSelfie] = useState<{ context: string } | null>(null);
   const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [preAttachedImage, setPreAttachedImage] = useState<string | null>(null);
+  const [hasMounted, setHasMounted] = useState(false);
 
 
   const { toast } = useToast();
 
   useEffect(() => {
+    setHasMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasMounted) return;
     // Attempt to get browser language for the very first AI message
     if (typeof window !== 'undefined' && navigator.language) {
       setInitialLanguageHint("User's preferred language seems to be: " + navigator.language.split('-')[0]);
     }
-  }, []);
+  }, [hasMounted]);
 
   useEffect(() => {
+    if (!hasMounted) return;
     const loadVoices = () => {
       if (typeof window !== 'undefined' && window.speechSynthesis) {
         const voices = window.speechSynthesis.getVoices();
@@ -94,10 +101,12 @@ export default function VirtualDatePage() {
         window.speechSynthesis.onvoiceschanged = null;
       }
     };
-  }, []);
+  }, [hasMounted]);
 
 
   useEffect(() => {
+    if (!hasMounted) return;
+
     const loadStateAndInitiateSetup = async () => {
       setIsInitializing(true);
       setIsAiResponding(false);
@@ -157,11 +166,13 @@ export default function VirtualDatePage() {
     };
     loadStateAndInitiateSetup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hasMounted]); // Add hasMounted here
 
   useEffect(() => {
+    if (!hasMounted || isInitializing) return;
+
     const runAISetupStep = async () => {
-      if (clientSetupStep === 'AWAITING_AI_GREETING' && messages.length === 0 && !isAiResponding && !isInitializing) {
+      if (clientSetupStep === 'AWAITING_AI_GREETING' && messages.length === 0 && !isAiResponding) {
         setIsAiResponding(true);
         try {
           const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
@@ -176,11 +187,9 @@ export default function VirtualDatePage() {
         }
       }
     };
-    if (!isInitializing) {
-        runAISetupStep();
-    }
+    runAISetupStep();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientSetupStep, isInitializing, initialLanguageHint, messages.length]);
+  }, [clientSetupStep, isInitializing, initialLanguageHint, messages.length, hasMounted]); // Add hasMounted
 
   const addMessage = useCallback((message: Omit<Message, 'id' | 'timestamp'>) => {
     setMessages(prev => [...prev, { ...message, id: Date.now().toString() + Math.random().toString(36).substring(2,7), timestamp: Date.now() }]);
@@ -202,7 +211,7 @@ export default function VirtualDatePage() {
       setIsGeneratingPhotoshoot(false);
       window.localStorage.removeItem(LOCAL_STORAGE_SETTINGS_KEY);
       toast({ title: "New Chat Started", description: "Let's set up your AI companion!" });
-       if (messages.length === 0 && !isInitializing) {
+       if (hasMounted && messages.length === 0 && !isInitializing) {
         setIsAiResponding(true);
         try {
             const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
@@ -391,7 +400,7 @@ Available commands:
         }
       } else if (appSettings && clientSetupStep === 'CHAT_READY') {
         const chatHistory = messages
-          .slice(-20) 
+          .slice(-20)
           .map(msg => `${msg.sender === 'user' ? (appSettings.userName || 'User') : 'AI Girlfriend'}: ${msg.text || (msg.imageUrl ? '[sent a selfie]' : '')}`)
           .join('\\n');
 
@@ -431,7 +440,7 @@ Available commands:
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
         setIsAiResponding(false);
-        if (!isInitializing && messages.length === 0) {
+        if (hasMounted && !isInitializing && messages.length === 0) {
             setIsAiResponding(true);
             try {
                 const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
@@ -494,7 +503,7 @@ Available commands:
         setSettingsDraft(DEFAULT_SETTINGS_DRAFT);
         setSetupVisualPhase('conversational_setup');
         setIsAiResponding(false);
-        if (!isInitializing && messages.length === 0) {
+        if (hasMounted && !isInitializing && messages.length === 0) {
             setIsAiResponding(true);
             try {
                 const inputForAISetup: GetSetupPromptInput = { currentStep: AI_SETUP_STEPS.INITIATE, userRawInput: initialLanguageHint };
@@ -537,7 +546,7 @@ Available commands:
     } finally {
       setIsAiResponding(false);
     }
-  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing, messages.length ]);
+  }, [settingsDraft, setAppSettings, toast, addMessage, isAiResponding, isGeneratingSelfie, isGeneratingPhotoshoot, initialLanguageHint, isInitializing, messages.length, hasMounted ]);
 
   const handleGenerateSelfieRequest = async (selfieContext: string, currentAppSettings: AppSettings, userRequestText?: string) => {
     if (!currentAppSettings || !currentAppSettings.selectedAvatarDataUri || isGeneratingSelfie || isAiResponding || isGeneratingPhotoshoot) return;
@@ -604,7 +613,7 @@ Available commands:
     }
   };
 
-  if (isInitializing) {
+  if (!hasMounted || isInitializing) {
     return (
       <div className="flex flex-col min-h-screen">
         <AppHeader />
@@ -656,7 +665,7 @@ Available commands:
             />
           </div>
         )}
-        {setupVisualPhase === 'voice_selection' && (
+        {hasMounted && setupVisualPhase === 'voice_selection' && (
           <VoiceSelector
             availableVoices={availableVoices}
             onVoiceSelected={handleVoiceSelected}
@@ -715,7 +724,7 @@ Available commands:
             </CardFooter>
           </Card>
         )}
-        {setupVisualPhase === 'chat_ready' && appSettings && (
+        {hasMounted && setupVisualPhase === 'chat_ready' && appSettings && (
           <div className="h-[calc(100vh-10rem)]">
             <ChatWindow
               messages={messages}
